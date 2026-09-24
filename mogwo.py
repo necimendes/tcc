@@ -81,7 +81,6 @@ def avaliar_subconjunto(posicao, X_treino, y_treino, k=3):
     
     X_sub = X_treino[:, features]
     
-    # Divisão interna treino/validação 70/30
     X_tr, X_val, y_tr, y_val = train_test_split(
         X_sub, y_treino, test_size=0.3, stratify=y_treino, random_state=None
     )
@@ -95,7 +94,11 @@ def avaliar_subconjunto(posicao, X_treino, y_treino, k=3):
     FP = np.sum((y_pred == 1) & (y_val == 0))
     fpr = FP / (FP + TN) if (FP + TN) > 0 else 0.0
     
-    return np.array([1 - f1, fpr])
+    # Adiciona ruído pequeno para evitar que soluções diferentes
+    # produzam valores idênticos de custo
+    ruido = np.random.uniform(0, 0.001)
+    
+    return np.array([1 - f1 + ruido, fpr + ruido])
 
 def domina(a, b):
     return np.all(a <= b) and np.any(a < b)
@@ -121,7 +124,8 @@ def remover_duplicatas_arquivo(arquivo):
     vistos = set()
     unicos = []
     for p in arquivo:
-        chave = tuple(p['posicao'].astype(int))
+        # Duplicata por custo, não por posição
+        chave = (round(p['custo'][0], 6), round(p['custo'][1], 6))
         if chave not in vistos:
             vistos.add(chave)
             unicos.append(p)
@@ -269,11 +273,11 @@ if __name__ == '__main__':
     k = escolher_k(X_amostra, y_amostra)
 
     arquivo_final = bmogwo(
-        X_treino=X_amostra,
-        y_treino=y_amostra.values,
-        k=k,
-        n_lobos=30,
-        max_iter=200,
-        archive_size=100,
-        caminho_save='arquivo_pareto.pkl'
-    )
+    X_treino=X_amostra,
+    y_treino=y_amostra.values,
+    k=k,
+    n_lobos=30,
+    max_iter=200,
+    archive_size=50,
+    caminho_save='arquivo_pareto.pkl'
+)
