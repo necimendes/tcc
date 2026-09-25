@@ -192,13 +192,18 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
     arquivo = []
 
     print("Inicializando população...")
+    
     populacao = []
     for i in range(n_lobos):
-        pos = np.random.randint(0, 2, size=n_features).astype(float)
+        # Densidade variada: de 10% a 90% das features
+        densidade = (i + 1) / (n_lobos + 1)
+        pos = (np.random.rand(n_features) < densidade).astype(float)
+        if np.sum(pos) == 0:
+            pos[np.random.randint(n_features)] = 1
         custo = avaliar_subconjunto(pos, X_treino, y_treino, k)
         populacao.append({'posicao': pos.copy(), 'custo': custo.copy(),
-                          'dominado': False, 'grid_index': 0, 'grid_sub_index': (0,0)})
-        print(f"  Lobo {i+1}/{n_lobos} | 1-F1={custo[0]:.4f} | FPR={custo[1]:.4f}")
+                        'dominado': False, 'grid_index': 0, 'grid_sub_index': (0,0)})
+        print(f"  Lobo {i+1}/{n_lobos} | features={int(np.sum(pos))} | 1-F1={custo[0]:.4f} | FPR={custo[1]:.4f}")
 
     populacao = determinar_dominancia(populacao)
     arquivo = get_nao_dominados(populacao)
@@ -278,6 +283,6 @@ if __name__ == '__main__':
     k=k,
     n_lobos=30,
     max_iter=200,
-    archive_size=50,
+    archive_size=100,
     caminho_save='arquivo_pareto.pkl'
 )
