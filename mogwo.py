@@ -4,6 +4,7 @@ import os
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split, StratifiedShuffleSplit, StratifiedKFold, cross_val_score
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.naive_bayes import GaussianNB
 from sklearn.metrics import f1_score
 import pickle
 
@@ -74,6 +75,7 @@ def escolher_k(X_amostra, y_amostra, ks=[3, 5, 7, 9]):
 # ============================================================
 # 4. FUNÇÕES DO BMOGWO
 # ============================================================
+
 def avaliar_subconjunto(posicao, X_treino, y_treino, k=3):
     features = np.where(posicao == 1)[0]
     if len(features) == 0:
@@ -85,17 +87,16 @@ def avaliar_subconjunto(posicao, X_treino, y_treino, k=3):
         X_sub, y_treino, test_size=0.3, stratify=y_treino, random_state=None
     )
     
-    knn = KNeighborsClassifier(n_neighbors=k, metric='euclidean', n_jobs=-1)
-    knn.fit(X_tr, y_tr)
-    y_pred = knn.predict(X_val)
+    clf = GaussianNB()
+    clf.fit(X_tr, y_tr)
+    y_pred = clf.predict(X_val)
     
     f1 = f1_score(y_val, y_pred, zero_division=0)
     TN = np.sum((y_pred == 0) & (y_val == 0))
     FP = np.sum((y_pred == 1) & (y_val == 0))
     fpr = FP / (FP + TN) if (FP + TN) > 0 else 0.0
     
-    # Adiciona ruído pequeno para evitar que soluções diferentes
-    # produzam valores idênticos de custo
+    # Mantém o ruído pequeno para evitar custos idênticos
     ruido = np.random.uniform(0, 0.001)
     
     return np.array([1 - f1 + ruido, fpr + ruido])
@@ -194,10 +195,9 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
     print("Inicializando população...")
     
     populacao = []
+    # Volta para inicialização aleatória simples
     for i in range(n_lobos):
-        # Densidade variada: de 10% a 90% das features
-        densidade = (i + 1) / (n_lobos + 1)
-        pos = (np.random.rand(n_features) < densidade).astype(float)
+        pos = np.random.randint(0, 2, size=n_features).astype(float)
         if np.sum(pos) == 0:
             pos[np.random.randint(n_features)] = 1
         custo = avaliar_subconjunto(pos, X_treino, y_treino, k)
@@ -274,7 +274,7 @@ if __name__ == '__main__':
     df = carregar_dataset(CAMINHO_DATASET)
     df = preprocessar(df)
     X_train_scaled, X_test_scaled, y_train, y_test = dividir_normalizar(df)
-    X_amostra, y_amostra = criar_amostra(X_train_scaled, y_train, tamanho=0.05)
+    X_amostra, y_amostra = criar_amostra(X_train_scaled, y_train, tamanho=0.10)
     k = escolher_k(X_amostra, y_amostra)
 
     arquivo_final = bmogwo(
