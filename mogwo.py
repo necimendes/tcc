@@ -94,11 +94,43 @@ def avaliar_subconjunto(posicao, X_treino, y_treino, k=3):
     FP = np.sum((y_pred == 1) & (y_val == 0))
     fpr = FP / (FP + TN) if (FP + TN) > 0 else 0.0
     
-    # Adiciona ruído pequeno para evitar que soluções diferentes
-    # produzam valores idênticos de custo
-    ruido = np.random.uniform(0, 0.001)
+    # Sem ruído — queremos valores reais para distinguir subconjuntos
+    return np.array([1 - f1, fpr])
+
+
+def adicionar_ao_arquivo(arquivo, nova_solucao, margem=0.005):
+    """
+    Adiciona solução ao arquivo apenas se o subconjunto de features
+    for genuinamente diferente dos já existentes, ou se for melhor
+    em pelo menos um objetivo por uma margem mínima.
+    """
+    chave_nova = tuple(nova_solucao['posicao'].astype(int))
     
-    return np.array([1 - f1 + ruido, fpr + ruido])
+    for existente in arquivo:
+        chave_existente = tuple(existente['posicao'].astype(int))
+        
+        if chave_nova == chave_existente:
+            # Mesmo subconjunto — só substitui se melhorar em algum objetivo
+            melhora_f1 = existente['custo'][0] - nova_solucao['custo'][0] > margem
+            melhora_fpr = existente['custo'][1] - nova_solucao['custo'][1] > margem
+            if melhora_f1 or melhora_fpr:
+                existente['custo'] = nova_solucao['custo'].copy()
+            return arquivo  # Não adiciona duplicata
+    
+    # Subconjunto genuinamente novo — adiciona
+    arquivo.append(nova_solucao)
+    return arquivo
+
+
+def remover_duplicatas_arquivo(arquivo):
+    vistos = set()
+    unicos = []
+    for p in arquivo:
+        chave = tuple(p['posicao'].astype(int))
+        if chave not in vistos:
+            vistos.add(chave)
+            unicos.append(p)
+    return unicos
 
 def domina(a, b):
     return np.all(a <= b) and np.any(a < b)
@@ -119,17 +151,6 @@ def determinar_dominancia(pop):
 
 def get_nao_dominados(pop):
     return [p for p in pop if not p['dominado']]
-
-def remover_duplicatas_arquivo(arquivo):
-    vistos = set()
-    unicos = []
-    for p in arquivo:
-        # Duplicata por custo, não por posição
-        chave = (round(p['custo'][0], 6), round(p['custo'][1], 6))
-        if chave not in vistos:
-            vistos.add(chave)
-            unicos.append(p)
-    return unicos
 
 def criar_hipercubos(custos, n_grid, alpha):
     grade = []
@@ -184,43 +205,57 @@ def get_custos(pop):
 # ============================================================
 # 5. LOOP PRINCIPAL DO BMOGWO
 # ============================================================
-def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
+def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=1000,
            archive_size=100, alpha=0.1, n_grid=10, beta=4, gamma=2,
            caminho_save='arquivo_pareto.pkl'):
 
     n_features = X_treino.shape[1]
     arquivo = []
 
-    print("Inicializando população...")
-    
+    print("Inicializando população com densidade variada...")
     populacao = []
     for i in range(n_lobos):
-        # Densidade variada: de 10% a 90% das features
         densidade = (i + 1) / (n_lobos + 1)
         pos = (np.random.rand(n_features) < densidade).astype(float)
         if np.sum(pos) == 0:
             pos[np.random.randint(n_features)] = 1
         custo = avaliar_subconjunto(pos, X_treino, y_treino, k)
         populacao.append({'posicao': pos.copy(), 'custo': custo.copy(),
-                        'dominado': False, 'grid_index': 0, 'grid_sub_index': (0,0)})
-        print(f"  Lobo {i+1}/{n_lobos} | features={int(np.sum(pos))} | 1-F1={custo[0]:.4f} | FPR={custo[1]:.4f}")
+                          'dominado': False, 'grid_index': 0,
+                          'grid_sub_index': (0, 0)})
+        print(f"  Lobo {i+1}/{n_lobos} | features={int(np.sum(pos))} | "
+              f"1-F1={custo[0]:.4f} | FPR={custo[1]:.4f}")
 
     populacao = determinar_dominancia(populacao)
-    arquivo = get_nao_dominados(populacao)
-    grade = criar_hipercubos(get_custos(arquivo), n_grid, alpha)
-    for p in arquivo:
-        p['grid_index'], p['grid_sub_index'] = get_grid_index(p, grade)
+    nao_dom = get_nao_dominados(populacao)
+    
+    for sol in nao_dom:
+        arquivo = adicionar_ao_arquivo(arquivo, sol)
+    
+    arquivo = remover_duplicatas_arquivo(arquivo)
+    arquivo = determinar_dominancia(arquivo)
+    arquivo = get_nao_dominados(arquivo)
+    
+    if len(arquivo) > 0:
+        grade = criar_hipercubos(get_custos(arquivo), n_grid, alpha)
+        for p in arquivo:
+            p['grid_index'], p['grid_sub_index'] = get_grid_index(p, grade)
 
-    print(f"\nInicialização concluída. Arquivo: {len(arquivo)} soluções\n")
+    print(f"\nInicialização concluída. Arquivo: {len(arquivo)} soluções únicas\n")
 
     for it in range(max_iter):
         a = 2 - it * (2 / max_iter)
 
         for i in range(n_lobos):
+            if len(arquivo) == 0:
+                break
+                
             Delta = selecionar_lider(arquivo, beta)
-            rep2 = [p for p in arquivo if not np.array_equal(p['posicao'], Delta['posicao'])]
+            rep2 = [p for p in arquivo
+                    if not np.array_equal(p['posicao'], Delta['posicao'])]
             Beta = selecionar_lider(rep2, beta) if rep2 else Delta
-            rep3 = [p for p in rep2 if not np.array_equal(p['posicao'], Beta['posicao'])]
+            rep3 = [p for p in rep2
+                    if not np.array_equal(p['posicao'], Beta['posicao'])]
             Alpha = selecionar_lider(rep3, beta) if rep3 else Beta
 
             nova_pos = np.zeros(n_features)
@@ -232,37 +267,49 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
             nova_pos /= 3
             sig = 1 / (1 + np.exp(-10 * (nova_pos - 0.5)))
             nova_pos = (sig >= 0.5).astype(float)
+            
             if np.sum(nova_pos) == 0:
                 nova_pos[np.random.randint(n_features)] = 1
 
             populacao[i]['posicao'] = nova_pos
-            populacao[i]['custo'] = avaliar_subconjunto(nova_pos, X_treino, y_treino, k)
+            populacao[i]['custo'] = avaliar_subconjunto(
+                nova_pos, X_treino, y_treino, k)
 
         populacao = determinar_dominancia(populacao)
-        arquivo.extend(get_nao_dominados(populacao))
+        
+        # Adiciona apenas subconjuntos genuinamente novos
+        for sol in get_nao_dominados(populacao):
+            arquivo = adicionar_ao_arquivo(arquivo, sol)
+        
+        arquivo = remover_duplicatas_arquivo(arquivo)
         arquivo = determinar_dominancia(arquivo)
         arquivo = get_nao_dominados(arquivo)
-        arquivo = remover_duplicatas_arquivo(arquivo)
-        grade = criar_hipercubos(get_custos(arquivo), n_grid, alpha)
-        for p in arquivo:
-            p['grid_index'], p['grid_sub_index'] = get_grid_index(p, grade)
 
-        if len(arquivo) > archive_size:
-            arquivo = deletar_do_arquivo(arquivo, len(arquivo) - archive_size, gamma)
+        if len(arquivo) > 0:
             grade = criar_hipercubos(get_custos(arquivo), n_grid, alpha)
             for p in arquivo:
                 p['grid_index'], p['grid_sub_index'] = get_grid_index(p, grade)
 
-        print(f"Iteração {it+1}/{max_iter} | Arquivo: {len(arquivo)} soluções")
+        if len(arquivo) > archive_size:
+            arquivo = deletar_do_arquivo(
+                arquivo, len(arquivo) - archive_size, gamma)
+            grade = criar_hipercubos(get_custos(arquivo), n_grid, alpha)
+            for p in arquivo:
+                p['grid_index'], p['grid_sub_index'] = get_grid_index(p, grade)
 
-        if (it + 1) % 10 == 0:
+        n_unicas = len(set(tuple(p['posicao'].astype(int)) for p in arquivo))
+        print(f"Iteração {it+1}/{max_iter} | "
+              f"Arquivo: {len(arquivo)} soluções | "
+              f"Subconjuntos únicos: {n_unicas}")
+
+        if (it + 1) % 50 == 0:
             with open(caminho_save, 'wb') as f:
                 pickle.dump(arquivo, f)
             print(f"  --> Salvo (iteração {it+1})")
 
     with open(caminho_save, 'wb') as f:
         pickle.dump(arquivo, f)
-    print(f"\nConcluído. {len(arquivo)} soluções salvas em {caminho_save}")
+    print(f"\nConcluído. {len(arquivo)} soluções salvas.")
     return arquivo
 
 # ============================================================
@@ -274,7 +321,7 @@ if __name__ == '__main__':
     df = carregar_dataset(CAMINHO_DATASET)
     df = preprocessar(df)
     X_train_scaled, X_test_scaled, y_train, y_test = dividir_normalizar(df)
-    X_amostra, y_amostra = criar_amostra(X_train_scaled, y_train, tamanho=0.05)
+    X_amostra, y_amostra = criar_amostra(X_train_scaled, y_train, tamanho=0.20)
     k = escolher_k(X_amostra, y_amostra)
 
     arquivo_final = bmogwo(
