@@ -302,7 +302,7 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=1000,
               f"Arquivo: {len(arquivo)} soluções | "
               f"Subconjuntos únicos: {n_unicas}")
 
-        if (it + 1) % 50 == 0:
+        if (it + 1) % 20 == 0:
             with open(caminho_save, 'wb') as f:
                 pickle.dump(arquivo, f)
             print(f"  --> Salvo (iteração {it+1})")
@@ -321,7 +321,7 @@ if __name__ == '__main__':
     df = carregar_dataset(CAMINHO_DATASET)
     df = preprocessar(df)
     X_train_scaled, X_test_scaled, y_train, y_test = dividir_normalizar(df)
-    X_amostra, y_amostra = criar_amostra(X_train_scaled, y_train, tamanho=0.20)
+    X_amostra, y_amostra = criar_amostra(X_train_scaled, y_train, tamanho=0.10)
     k = escolher_k(X_amostra, y_amostra)
 
     arquivo_final = bmogwo(
@@ -329,7 +329,7 @@ if __name__ == '__main__':
     y_treino=y_amostra.values,
     k=k,
     n_lobos=30,
-    max_iter=1000,
+    max_iter=200,
     archive_size=100,
     caminho_save='arquivo_pareto.pkl'
 )
