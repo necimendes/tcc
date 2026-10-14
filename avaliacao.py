@@ -8,7 +8,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import f1_score, classification_report
 
 # Recarrega o dataset
-CAMINHO_DATASET = 'data/MachineLearningCSV/MachineLearningCVE'
+CAMINHO_DATASET = 'data/MachineLearningCVE'
 
 dfs = []
 for arquivo in sorted(os.listdir(CAMINHO_DATASET)):
