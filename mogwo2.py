@@ -96,54 +96,111 @@ def avaliar_subconjunto(posicao, X_tr, X_val, y_tr, y_val, k):
     return np.array([1.0 - f1, fp / (fp + tn) if fp + tn else 0.0])
 
 
-def atualizar_arquivo(arquivo, candidato, capacidade, rng):
-    """Mantém apenas máscaras distintas não dominadas, sem compartilhar referências."""
-    chave = tuple(candidato['posicao'].astype(np.uint8))
+
+def criar_hipercubos(arquivo, n_grid=10, alpha=0.1):
+    """Identifica o hipercubo de cada solução no espaço dos objetivos."""
+    custos = np.array([sol['custo'] for sol in arquivo])
+    limites_por_objetivo = []
+
+    for j in range(custos.shape[1]):
+        minimo, maximo = custos[:, j].min(), custos[:, j].max()
+        margem = alpha * (maximo - minimo)
+
+        limites_por_objetivo.append(
+            np.linspace(minimo - margem, maximo + margem, n_grid - 1)
+        )
+
+    return [
+        tuple(
+            int(np.searchsorted(limites, custo[j], side='left'))
+            for j, limites in enumerate(limites_por_objetivo)
+        )
+        for custo in custos
+    ]
+
+
+def agrupar_celulas(indices_grade, disponiveis):
+    celulas = {}
+
+    for indice in disponiveis:
+        celulas.setdefault(indices_grade[indice], []).append(indice)
+
+    return celulas
+
+
+def escolher_lideres(arquivo, rng, n_grid=10, alpha=0.1, beta=4):
+    """Seleciona os lideres priorizando hipercubos menos ocupados."""
+    indices_grade = criar_hipercubos(arquivo, n_grid, alpha)
+    disponiveis = list(range(len(arquivo)))
+    lideres = []
+
+    for _ in range(3):
+        if not disponiveis:
+            lideres.append(lideres[-1])
+            continue
+
+        celulas = agrupar_celulas(indices_grade, disponiveis)
+        grupos = list(celulas.values())
+
+        pesos = np.array(
+            [len(g) ** (-beta) for g in grupos],
+            dtype=float
+        )
+        pesos /= pesos.sum()
+
+        grupo = grupos[int(rng.choice(len(grupos), p=pesos))]
+        indice = int(rng.choice(grupo))
+
+        lideres.append(arquivo[indice])
+        disponiveis.remove(indice)
+
+    return lideres
+
+
+def atualizar_arquivo(arquivo, candidato, capacidade, rng,
+                      n_grid=10, alpha=0.1, gamma=2):
+    """Mantem solucoes nao dominadas e limita o arquivo por hipercubos."""
+    chave = candidato['posicao'].tobytes()
+
     for sol in arquivo:
-        if tuple(sol['posicao'].astype(np.uint8)) == chave:
+        if sol['posicao'].tobytes() == chave:
             return arquivo
+
         if domina(sol['custo'], candidato['custo']):
             return arquivo
-    arquivo = [s for s in arquivo if not domina(candidato['custo'], s['custo'])]
-    arquivo.append({'posicao': candidato['posicao'].copy(),
-                    'custo': candidato['custo'].copy()})
-    if len(arquivo) > capacidade:
-        # Crowding distance em espaço normalizado; conserva extremos.
-        custos = np.array([s['custo'] for s in arquivo])
-        dist = np.zeros(len(arquivo))
-        for j in range(2):
-            ordem = np.argsort(custos[:, j], kind='stable')
-            dist[ordem[0]] = dist[ordem[-1]] = np.inf
-            amplitude = custos[ordem[-1], j] - custos[ordem[0], j]
-            if amplitude > 0:
-                for z in range(1, len(ordem) - 1):
-                    dist[ordem[z]] += (custos[ordem[z+1], j] - custos[ordem[z-1], j]) / amplitude
-        finitos = np.flatnonzero(np.isfinite(dist))
-        remover = int(rng.choice(finitos[np.isclose(dist[finitos], np.min(dist[finitos]))])) if len(finitos) else int(rng.integers(len(arquivo)))
-        arquivo.pop(remover)
+
+    arquivo = [
+        sol for sol in arquivo
+        if not domina(candidato['custo'], sol['custo'])
+    ]
+
+    arquivo.append({
+        'posicao': candidato['posicao'].copy(),
+        'custo': candidato['custo'].copy()
+    })
+
+    while len(arquivo) > capacidade:
+        indices_grade = criar_hipercubos(arquivo, n_grid, alpha)
+        celulas = agrupar_celulas(indices_grade, range(len(arquivo)))
+        grupos = list(celulas.values())
+
+        pesos = np.array(
+            [len(g) ** gamma for g in grupos],
+            dtype=float
+        )
+        pesos /= pesos.sum()
+
+        grupo = grupos[int(rng.choice(len(grupos), p=pesos))]
+        arquivo.pop(int(rng.choice(grupo)))
+
     return arquivo
-
-
-def escolher_lideres(arquivo, rng):
-    """Preferência por soluções menos congestionadas, sem exigir três distintas."""
-    custos = np.array([s['custo'] for s in arquivo])
-    n = len(arquivo)
-    if n == 1:
-        return [arquivo[0]] * 3
-    normal = (custos - custos.min(axis=0)) / np.maximum(np.ptp(custos, axis=0), 1e-12)
-    dist = np.linalg.norm(normal[:, None, :] - normal[None, :, :], axis=2)
-    np.fill_diagonal(dist, np.inf)
-    diversidade = np.min(dist, axis=1) + 0.05
-    probs = diversidade / diversidade.sum()
-    indices = rng.choice(n, size=3, replace=n < 3, p=probs)
-    return [arquivo[int(i)] for i in indices]
 
 
 def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
            archive_size=100, caminho_save='arquivo_pareto.pkl',
-           seed=42, taxa_mutacao=0.03, fracao_aleatoria=0.10,
+           seed=42, n_grid=10, alpha=0.1, beta=4, gamma=2,
            log_csv='historico_mogwo.csv'):
-    """MOGWO binário com avaliação fixa e mutação para diversidade."""
+    """MOGWO binario com arquivo externo e hipercubos adaptativos."""
     rng = np.random.default_rng(seed)
     y_treino = np.asarray(y_treino)
     # A mesma divisão é usada em TODAS as avaliações dos lobos.
@@ -170,7 +227,7 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
         densidade = (i + 1) / (n_lobos + 1)
         sol = criar_solucao(rng.random(n_features) < densidade)
         populacao.append(sol)
-        arquivo = atualizar_arquivo(arquivo, sol, archive_size, rng)
+        arquivo = atualizar_arquivo(arquivo, sol, archive_size, rng, n_grid, alpha, gamma)
 
     with open(log_csv, 'w', newline='', encoding='utf-8') as f:
         escritor = csv.writer(f)
@@ -180,7 +237,7 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
             a = 2 * (1 - it / max_iter)
             novos = []
             for lobo in populacao:
-                lideres = escolher_lideres(arquivo, rng)
+                lideres = escolher_lideres(arquivo, rng, n_grid, alpha, beta)
                 candidatos = []
                 for lider in lideres:
                     A = a * (2 * rng.random(n_features) - 1)
@@ -191,14 +248,10 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
                 # Probabilidade sigmoide; não limiar determinístico.
                 prob = 1 / (1 + np.exp(-np.clip(10 * (media - 0.5), -50, 50)))
                 mascara = (rng.random(n_features) < prob).astype(np.uint8)
-                flips = rng.random(n_features) < taxa_mutacao
-                mascara[flips] = 1 - mascara[flips]
-                if rng.random() < fracao_aleatoria:
-                    densidade = rng.uniform(1 / n_features, 0.7)
-                    mascara = (rng.random(n_features) < densidade).astype(np.uint8)
+
                 sol = criar_solucao(mascara)
                 novos.append(sol)
-                arquivo = atualizar_arquivo(arquivo, sol, archive_size, rng)
+                arquivo = atualizar_arquivo(arquivo, sol, archive_size, rng, n_grid, alpha, gamma)
             populacao = novos
             custos = np.array([s['custo'] for s in arquivo])
             quantidades = [int(s['posicao'].sum()) for s in arquivo]
@@ -223,6 +276,12 @@ if __name__ == '__main__':
     X_train_scaled, X_test_scaled, y_train, y_test = dividir_normalizar(df)
     X_amostra, y_amostra = criar_amostra(X_train_scaled, y_train, tamanho=0.10)
     k = escolher_k(X_amostra, y_amostra)
-    arquivo_final = bmogwo(X_amostra, y_amostra.values, k=k,
-                           n_lobos=30, max_iter=200, archive_size=100,
-                           caminho_save='arquivo_pareto_corrigido.pkl', seed=42)
+    arquivo_final = bmogwo(
+        X_amostra, 
+        y_amostra.values, 
+        k=k,
+        n_lobos=30, 
+        max_iter=200, 
+        archive_size=100,
+        caminho_save='arquivo_pareto.pkl', 
+        seed=42)
