@@ -1,15 +1,14 @@
 import numpy as np
 import pandas as pd
 import os
+import time
+from datetime import timedelta
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split, StratifiedShuffleSplit, StratifiedKFold, cross_val_score
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import f1_score
 import pickle
 
-# ============================================================
-# 1. CARREGAMENTO DO DATASET
-# ============================================================
 def carregar_dataset(caminho):
     dfs = []
     for arquivo in sorted(os.listdir(caminho)):
@@ -21,9 +20,6 @@ def carregar_dataset(caminho):
     print(f"\nDataset completo: {df.shape}")
     return df
 
-# ============================================================
-# 2. PRÉ-PROCESSAMENTO
-# ============================================================
 def preprocessar(df):
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     antes = len(df)
@@ -56,9 +52,6 @@ def criar_amostra(X_train_scaled, y_train, tamanho=0.10):
     print(f"Amostra: {len(X_amostra)} registros")
     return X_amostra, y_amostra
 
-# ============================================================
-# 3. VALIDAÇÃO CRUZADA PARA ESCOLHA DO K
-# ============================================================
 def escolher_k(X_amostra, y_amostra, ks=[3, 5, 7, 9]):
     resultados = {}
     for k in ks:
@@ -71,16 +64,14 @@ def escolher_k(X_amostra, y_amostra, ks=[3, 5, 7, 9]):
     print(f"\nk escolhido: {k_escolhido}")
     return k_escolhido
 
-# ============================================================
-# 4. AVALIAÇÃO REPRODUTÍVEL E ARQUIVO NÃO DOMINADO
-# ============================================================
+
 from sklearn.metrics import confusion_matrix
 import csv
 import copy
 
 
 def domina(a, b):
-    """Ambos os custos são minimizados: [1-F1, FPR]."""
+    """ambos os custos são minimizados: [1-F1, FPR]"""
     return bool(np.all(a <= b) and np.any(a < b))
 
 
@@ -96,9 +87,8 @@ def avaliar_subconjunto(posicao, X_tr, X_val, y_tr, y_val, k):
     return np.array([1.0 - f1, fp / (fp + tn) if fp + tn else 0.0])
 
 
-
 def criar_hipercubos(arquivo, n_grid=10, alpha=0.1):
-    """Identifica o hipercubo de cada solução no espaço dos objetivos."""
+    """identifica o hipercubo de cada solução no espaço dos objetivos"""
     custos = np.array([sol['custo'] for sol in arquivo])
     limites_por_objetivo = []
 
@@ -129,7 +119,7 @@ def agrupar_celulas(indices_grade, disponiveis):
 
 
 def escolher_lideres(arquivo, rng, n_grid=10, alpha=0.1, beta=4):
-    """Seleciona os lideres priorizando hipercubos menos ocupados."""
+    """seleciona os lideres priorizando hipercubos menos ocupados"""
     indices_grade = criar_hipercubos(arquivo, n_grid, alpha)
     disponiveis = list(range(len(arquivo)))
     lideres = []
@@ -159,20 +149,20 @@ def escolher_lideres(arquivo, rng, n_grid=10, alpha=0.1, beta=4):
 
 def atualizar_arquivo(arquivo, candidato, capacidade, rng,
                       n_grid=10, alpha=0.1, gamma=2):
-    """Mantem solucoes nao dominadas e limita o arquivo por hipercubos."""
+    """mantem solucoes nao dominadas e limita o arquivo por hipercubos"""
     chave = candidato['posicao'].tobytes()
 
     
     for sol in arquivo:
-        # Impede armazenar o mesmo subconjunto.
+        # impede armazenar o mesmo subconjunto
         if sol['posicao'].tobytes() == chave:
             return arquivo
 
-        # Impede armazenar outro subconjunto com os mesmos objetivos.
+        # impede armazenar outro subconjunto com os mesmos objetivos
         if np.array_equal(sol['custo'], candidato['custo']):
             return arquivo
 
-        # Descarta o candidato se ele for dominado.
+        # descarta o candidato se ele for dominado
         if domina(sol['custo'], candidato['custo']):
             return arquivo
 
@@ -207,13 +197,13 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
            archive_size=100, caminho_save='arquivo_pareto.pkl',
            seed=42, n_grid=10, alpha=0.1, beta=4, gamma=2,
            log_csv='historico_mogwo.csv'):
-    """MOGWO binario com arquivo externo e hipercubos adaptativos."""
+    """mogwo binario com arquivo externo e hipercubos adaptativos"""
     rng = np.random.default_rng(seed)
     y_treino = np.asarray(y_treino)
-    # A mesma divisão é usada em TODAS as avaliações dos lobos.
+    #a mesma divisao usada em todas as avaliacoes dos lobos
     indices = np.arange(len(y_treino))
     tr_idx, val_idx = train_test_split(indices, test_size=0.30,
-                                       stratify=y_treino, random_state=seed)
+                                       stratify=y_treino, random_state=42)
     X_tr, X_val = X_treino[tr_idx], X_treino[val_idx]
     y_tr, y_val = y_treino[tr_idx], y_treino[val_idx]
     n_features = X_treino.shape[1]
@@ -237,14 +227,22 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
         arquivo = atualizar_arquivo(arquivo, sol, archive_size, rng, n_grid, alpha, gamma)
 
     with open(log_csv, 'w', newline='', encoding='utf-8') as f:
-        escritor = csv.writer(f)
+        escritor = csv.writer(f)        
         escritor.writerow(['iteracao', 'tamanho_arquivo', 'avaliacoes_unicas',
-                           'melhor_f1', 'menor_fpr', 'min_atributos'])
+                            'melhor_f1', 'menor_fpr', 'min_atributos',
+                            'lobos_distintos', 'lideres_distintos_media',
+                            'diversidade_hamming', 'novas_avaliacoes'])
+        inicio = time.perf_counter()
         for it in range(max_iter):
+            avaliacoes_antes = len(cache)
+            contagem_lideres = []
             a = 2 * (1 - it / max_iter)
             novos = []
             for lobo in populacao:
                 lideres = escolher_lideres(arquivo, rng, n_grid, alpha, beta)
+                contagem_lideres.append(
+                    len({lider['posicao'].tobytes() for lider in lideres})
+                )
                 candidatos = []
                 for lider in lideres:
                     A = a * (2 * rng.random(n_features) - 1)
@@ -252,7 +250,7 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
                     D = np.abs(C * lider['posicao'] - lobo['posicao'])
                     candidatos.append(lider['posicao'] - A * D)
                 media = np.mean(candidatos, axis=0)
-                # Probabilidade sigmoide; não limiar determinístico.
+                # probabilidade sigmoide; nao limiar deterministico
                 prob = 1 / (1 + np.exp(-np.clip(10 * (media - 0.5), -50, 50)))
                 mascara = (rng.random(n_features) < prob).astype(np.uint8)
 
@@ -260,14 +258,56 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
                 novos.append(sol)
                 arquivo = atualizar_arquivo(arquivo, sol, archive_size, rng, n_grid, alpha, gamma)
             populacao = novos
+            mascaras = np.stack([sol['posicao'] for sol in populacao])
+
+            lobos_distintos = len(np.unique(mascaras, axis=0))
+
+            distancias = np.mean(
+                mascaras[:, None, :] != mascaras[None, :, :],
+                axis=2
+            )
+
+            diversidade_hamming = distancias[
+                np.triu_indices(len(populacao), k=1)
+            ].mean()
+
+            lideres_distintos_media = np.mean(contagem_lideres)
+            novas_avaliacoes = len(cache) - avaliacoes_antes
+            
+            
             custos = np.array([s['custo'] for s in arquivo])
             quantidades = [int(s['posicao'].sum()) for s in arquivo]
-            escritor.writerow([it + 1, len(arquivo), len(cache),
-                               1 - custos[:, 0].min(), custos[:, 1].min(), min(quantidades)])
+            escritor.writerow([
+                it + 1,
+                len(arquivo),
+                len(cache),
+                1 - custos[:, 0].min(),
+                custos[:, 1].min(),
+                min(quantidades),
+                lobos_distintos,
+                lideres_distintos_media,
+                diversidade_hamming,
+                novas_avaliacoes
+            ])
             f.flush()
-            print(f"Iteração {it+1}/{max_iter} | Pareto: {len(arquivo)} | "
-                  f"avaliados: {len(cache)} | melhor F1: {1-custos[:,0].min():.5f} | "
-                  f"menor FPR: {custos[:,1].min():.5f}")
+            
+            tempo_decorrido = time.perf_counter() - inicio
+            tempo_medio = tempo_decorrido / (it + 1)
+            tempo_restante = tempo_medio * (max_iter - (it + 1))
+
+            decorrido = str(timedelta(seconds=int(tempo_decorrido)))
+            restante = str(timedelta(seconds=int(tempo_restante)))
+
+            print(
+                f"Iteração {it+1}/{max_iter} | "
+                f"Pareto: {len(arquivo)} | "
+                f"Avaliados: {len(cache)} | "
+                f"Melhor F1: {1-custos[:,0].min():.5f} | "
+                f"Menor FPR: {custos[:,1].min():.5f} | "
+                f"Decorrido: {decorrido} | "
+                f"Restante estimado: {restante}",
+                flush=True
+            )
             if (it + 1) % 20 == 0:
                 with open(caminho_save, 'wb') as saida:
                     pickle.dump(arquivo, saida)
@@ -291,4 +331,4 @@ if __name__ == '__main__':
         max_iter=200, 
         archive_size=100,
         caminho_save='arquivo_pareto.pkl', 
-        seed=42)
+        seed=123)
