@@ -445,12 +445,76 @@ if __name__ == '__main__':
     df = preprocessar(carregar_dataset(CAMINHO_DATASET))
     X_train_scaled, X_test_scaled, y_train, y_test = dividir_normalizar(df)
     X_amostra, y_amostra = criar_amostra(X_train_scaled, y_train, tamanho=0.10)
+    # Recupera a solucao com menor FPR do teste aleatorio
+    resultados = pd.read_csv('teste_subconjuntos_aleatorios.csv')
+    solucao = resultados.loc[resultados['fpr'].idxmin()]
+
+    mascara = np.array(
+        [int(bit) for bit in solucao['mascara']],
+        dtype=np.uint8
+    )
+
+    atributos = np.flatnonzero(mascara)
+
+    print("\nAtributos selecionados:", atributos.tolist())
+    print("F1 registrado:", solucao['f1_score'])
+    print("FPR registrada:", solucao['fpr'])
+
+    # Reproduz a mesma divisao da otimizacao
+    indices = np.arange(len(y_amostra))
+
+    tr_idx, val_idx = train_test_split(
+        indices,
+        test_size=0.30,
+        stratify=y_amostra,
+        random_state=42
+    )
+
+    X_tr = X_amostra[tr_idx][:, atributos]
+    X_val = X_amostra[val_idx][:, atributos]
+
+    y_tr = y_amostra.iloc[tr_idx]
+    y_val = y_amostra.iloc[val_idx]
+
+    # Treina e avalia o mesmo classificador
+    knn = KNeighborsClassifier(
+        n_neighbors=3,
+        metric='euclidean',
+        n_jobs=-1
+    )
+
+    knn.fit(X_tr, y_tr)
+    pred = knn.predict(X_val)
+
+    tn, fp, fn, tp = confusion_matrix(
+        y_val, pred, labels=[0, 1]
+    ).ravel()
+
+    f1 = f1_score(y_val, pred, zero_division=0)
+    fpr = fp / (fp + tn)
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    precision = tp / (tp + fp) if tp + fp else 0.0
+
+    print("\n===== MATRIZ DE CONFUSAO =====")
+    print(f"Verdadeiros negativos (TN): {tn}")
+    print(f"Falsos positivos (FP): {fp}")
+    print(f"Falsos negativos (FN): {fn}")
+    print(f"Verdadeiros positivos (TP): {tp}")
+
+    print("\n===== METRICAS =====")
+    print(f"F1-score: {f1:.6f}")
+    print(f"FPR: {fpr:.6f}")
+    print(f"Precisao: {precision:.6f}")
+    print(f"Revocacao: {recall:.6f}")
+    print(f"Ataques reais: {tp + fn}")
+    print(f"Ataques detectados: {tp}")
+    print(f"Ataques nao detectados: {fn}")
     #k = escolher_k(X_amostra, y_amostra)
-    resultado_teste = testar_subconjuntos_aleatorios(
+    """resultado_teste = testar_subconjuntos_aleatorios(
                 X_amostra,
                 y_amostra.values,
                 k=3
-            )
+            )"""
     """arquivo_final = bmogwo(
         X_amostra, 
         y_amostra.values, 
