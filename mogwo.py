@@ -339,13 +339,119 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
     return arquivo
 
 
+def testar_subconjuntos_aleatorios(X_amostra, y_amostra, k=3):
+    import time
+
+    rng = np.random.default_rng(2026)
+    y_amostra = np.asarray(y_amostra)
+
+    # Mesma divisao interna utilizada na otimizacao
+    indices = np.arange(len(y_amostra))
+
+    tr_idx, val_idx = train_test_split(
+        indices,
+        test_size=0.30,
+        stratify=y_amostra,
+        random_state=42
+    )
+
+    X_tr = X_amostra[tr_idx]
+    X_val = X_amostra[val_idx]
+    y_tr = y_amostra[tr_idx]
+    y_val = y_amostra[val_idx]
+
+    n_features = X_amostra.shape[1]
+
+    # Faixas de quantidade de atributos
+    grupos = [
+        (1, 5),
+        (6, 10),
+        (11, 20),
+        (21, 35),
+        (36, 55),
+        (56, n_features)
+    ]
+
+    avaliacoes_por_grupo = 15
+    resultados = []
+    inicio = time.perf_counter()
+
+    total = len(grupos) * avaliacoes_por_grupo
+    contador = 0
+
+    for minimo, maximo in grupos:
+        for _ in range(avaliacoes_por_grupo):
+
+            # Sorteia quantos atributos selecionar
+            quantidade = int(rng.integers(minimo, maximo + 1))
+
+            # Sorteia quais atributos serao selecionados
+            mascara = np.zeros(n_features, dtype=np.uint8)
+            selecionados = rng.choice(
+                n_features, size=quantidade, replace=False
+            )
+            mascara[selecionados] = 1
+
+            # Utiliza a mesma funcao de avaliacao do MOGWO
+            custo = avaliar_subconjunto(
+                mascara, X_tr, X_val, y_tr, y_val, k
+            )
+
+            resultados.append({
+                'grupo': f'{minimo}-{maximo}',
+                'n_atributos': quantidade,
+                'mascara': ''.join(map(str, mascara)),
+                'f1_score': 1.0 - custo[0],
+                'fpr': custo[1]
+            })
+
+            contador += 1
+            decorrido = time.perf_counter() - inicio
+            restante = decorrido / contador * (total - contador)
+
+            print(
+                f'{contador}/{total} | '
+                f'Atributos: {quantidade} | '
+                f'F1: {1.0 - custo[0]:.6f} | '
+                f'FPR: {custo[1]:.6f} | '
+                f'Decorrido: {decorrido / 60:.1f} min | '
+                f'Restante estimado: {restante / 60:.1f} min',
+                flush=True
+            )
+
+        # Salva os resultados apos cada grupo
+        pd.DataFrame(resultados).to_csv(
+            'teste_subconjuntos_aleatorios.csv', index=False
+        )
+
+    df_resultados = pd.DataFrame(resultados)
+
+    print('\nResumo por grupo:')
+    print(
+        df_resultados.groupby('grupo', sort=False).agg(
+            quantidade=('f1_score', 'count'),
+            melhor_f1=('f1_score', 'max'),
+            menor_fpr=('fpr', 'min')
+        )
+    )
+
+    print('\nTeste concluido.')
+    return df_resultados
+
+
+
 if __name__ == '__main__':
     CAMINHO_DATASET = 'data/MachineLearningCVE'
     df = preprocessar(carregar_dataset(CAMINHO_DATASET))
     X_train_scaled, X_test_scaled, y_train, y_test = dividir_normalizar(df)
     X_amostra, y_amostra = criar_amostra(X_train_scaled, y_train, tamanho=0.10)
-    k = escolher_k(X_amostra, y_amostra)
-    arquivo_final = bmogwo(
+    #k = escolher_k(X_amostra, y_amostra)
+    resultado_teste = testar_subconjuntos_aleatorios(
+                X_amostra,
+                y_amostra.values,
+                k=3
+            )
+    """arquivo_final = bmogwo(
         X_amostra, 
         y_amostra.values, 
         k=k,
@@ -353,4 +459,6 @@ if __name__ == '__main__':
         max_iter=200, 
         archive_size=100,
         caminho_save='arquivo_pareto.pkl', 
-        seed=123)
+        seed=123)"""
+        
+        
