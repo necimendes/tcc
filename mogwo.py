@@ -210,6 +210,8 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
     cache = {}
     arquivo = []
     populacao = []
+    avaliacoes = []
+    iteracao_atual = 0
 
     def criar_solucao(mascara):
         mascara = np.asarray(mascara, dtype=np.uint8).copy()
@@ -217,7 +219,19 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
             mascara[int(rng.integers(n_features))] = 1
         chave = mascara.tobytes()
         if chave not in cache:
-            cache[chave] = avaliar_subconjunto(mascara, X_tr, X_val, y_tr, y_val, k)
+            custo = avaliar_subconjunto(
+                mascara, X_tr, X_val, y_tr, y_val, k
+            )
+
+            cache[chave] = custo
+
+            avaliacoes.append({
+                'iteracao': iteracao_atual,
+                'mascara': ''.join(map(str, mascara)),
+                'n_atributos': int(mascara.sum()),
+                'f1_score': 1.0 - custo[0],
+                'fpr': custo[1]
+            })
         return {'posicao': mascara, 'custo': cache[chave].copy()}
 
     for i in range(n_lobos):
@@ -234,6 +248,7 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
                             'diversidade_hamming', 'novas_avaliacoes'])
         inicio = time.perf_counter()
         for it in range(max_iter):
+            iteracao_atual = it + 1
             avaliacoes_antes = len(cache)
             contagem_lideres = []
             a = 2 * (1 - it / max_iter)
@@ -311,9 +326,16 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
             if (it + 1) % 20 == 0:
                 with open(caminho_save, 'wb') as saida:
                     pickle.dump(arquivo, saida)
+                    pd.DataFrame(avaliacoes).to_csv(
+                        'avaliacoes_mogwo.csv', index=False
+                    )
     with open(caminho_save, 'wb') as saida:
         pickle.dump(arquivo, saida)
     print(f"Concluído: {len(arquivo)} soluções não dominadas, {len(cache)} máscaras avaliadas.")
+    
+    pd.DataFrame(avaliacoes).to_csv(
+    'avaliacoes_mogwo.csv', index=False
+)
     return arquivo
 
 
