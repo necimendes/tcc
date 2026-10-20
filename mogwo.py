@@ -446,7 +446,10 @@ if __name__ == '__main__':
     X_train_scaled, X_test_scaled, y_train, y_test = dividir_normalizar(df)
     X_amostra, y_amostra = criar_amostra(X_train_scaled, y_train, tamanho=0.10)
     # Recupera a solucao com menor FPR do teste aleatorio
-    resultados = pd.read_csv('teste_subconjuntos_aleatorios.csv')
+    resultados = pd.read_csv(
+        'teste_subconjuntos_aleatorios.csv',
+        dtype={'mascara': str}
+    )
     solucao = resultados.loc[resultados['fpr'].idxmin()]
 
     mascara = np.array(
