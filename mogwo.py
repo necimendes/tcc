@@ -321,9 +321,7 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
                 f"Pareto: {len(arquivo)} | "
                 f"Avaliados: {len(cache)} | "
                 f"Melhor F1: {1-custos[:,0].min():.5f} | "
-                f"Menor FPR: {custos[:,1].min():.5f} | "
-                f"Decorrido: {decorrido} | "
-                f"Restante estimado: {restante}",
+                f"Menor FPR: {custos[:,1].min():.5f} | ",
                 flush=True
             )
             if (it + 1) % 20 == 0:
@@ -416,9 +414,9 @@ def testar_subconjuntos_aleatorios(X_amostra, y_amostra, k=3):
                 f'{contador}/{total} | '
                 f'Atributos: {quantidade} | '
                 f'F1: {1.0 - custo[0]:.6f} | '
-                f'FPR: {custo[1]:.6f} | '
-                f'Decorrido: {decorrido / 60:.1f} min | '
-                f'Restante estimado: {restante / 60:.1f} min',
+                f'FPR: {custo[1]:.6f} | ',
+                #f'Decorrido: {decorrido / 60:.1f} min | '
+                #f'Restante estimado: {restante / 60:.1f} min',
                 flush=True
             )
 
@@ -470,6 +468,4 @@ if __name__ == '__main__':
         seed=123,
         log_csv='historico_mogwo_mutacao.csv'
     )
-
-    print("\n===== OTIMIZAÇÃO CONCLUÍDA =====")
     print(f"Soluções no arquivo de Pareto: {len(arquivo_final)}")
