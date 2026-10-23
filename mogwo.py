@@ -193,21 +193,32 @@ def atualizar_arquivo(arquivo, candidato, capacidade, rng,
     return arquivo
 
 
+
 def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
-           archive_size=100, caminho_save='arquivo_pareto.pkl',
+           archive_size=100, caminho_save='arquivo_pareto_mutacao.pkl',
            seed=42, n_grid=10, alpha=0.1, beta=4, gamma=2,
-           log_csv='historico_mogwo.csv'):
-    """mogwo binario com arquivo externo e hipercubos adaptativos"""
+           log_csv='historico_mogwo_mutacao.csv',
+           avaliacoes_csv='avaliacoes_mogwo_mutacao.csv',
+           taxa_mutacao=0.03):
+    """MOGWO binário com hipercubos adaptativos e mutação opcional."""
+
     rng = np.random.default_rng(seed)
-    taxa_mutacao = 0.03
     y_treino = np.asarray(y_treino)
-    #a mesma divisao usada em todas as avaliacoes dos lobos
+
+    # Mesma divisão em todas as avaliações dos lobos
     indices = np.arange(len(y_treino))
-    tr_idx, val_idx = train_test_split(indices, test_size=0.30,
-                                       stratify=y_treino, random_state=42)
+    tr_idx, val_idx = train_test_split(
+        indices,
+        test_size=0.30,
+        stratify=y_treino,
+        random_state=42
+    )
+
     X_tr, X_val = X_treino[tr_idx], X_treino[val_idx]
     y_tr, y_val = y_treino[tr_idx], y_treino[val_idx]
+
     n_features = X_treino.shape[1]
+
     cache = {}
     arquivo = []
     populacao = []
@@ -216,9 +227,12 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
 
     def criar_solucao(mascara):
         mascara = np.asarray(mascara, dtype=np.uint8).copy()
+
         if not mascara.any():
             mascara[int(rng.integers(n_features))] = 1
+
         chave = mascara.tobytes()
+
         if chave not in cache:
             custo = avaliar_subconjunto(
                 mascara, X_tr, X_val, y_tr, y_val, k
@@ -233,52 +247,126 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
                 'f1_score': 1.0 - custo[0],
                 'fpr': custo[1]
             })
-        return {'posicao': mascara, 'custo': cache[chave].copy()}
 
+        return {
+            'posicao': mascara,
+            'custo': cache[chave].copy()
+        }
+
+    # Inicialização da população
     for i in range(n_lobos):
         densidade = (i + 1) / (n_lobos + 1)
-        sol = criar_solucao(rng.random(n_features) < densidade)
+
+        sol = criar_solucao(
+            rng.random(n_features) < densidade
+        )
+
         populacao.append(sol)
-        arquivo = atualizar_arquivo(arquivo, sol, archive_size, rng, n_grid, alpha, gamma)
+
+        arquivo = atualizar_arquivo(
+            arquivo, sol, archive_size,
+            rng, n_grid, alpha, gamma
+        )
 
     with open(log_csv, 'w', newline='', encoding='utf-8') as f:
-        escritor = csv.writer(f)        
-        escritor.writerow(['iteracao', 'tamanho_arquivo', 'avaliacoes_unicas',
-                            'melhor_f1', 'menor_fpr', 'min_atributos',
-                            'lobos_distintos', 'lideres_distintos_media',
-                            'diversidade_hamming', 'novas_avaliacoes'])
+        escritor = csv.writer(f)
+
+        escritor.writerow([
+            'iteracao',
+            'tamanho_arquivo',
+            'avaliacoes_unicas',
+            'melhor_f1',
+            'menor_fpr',
+            'min_atributos',
+            'lobos_distintos',
+            'lideres_distintos_media',
+            'diversidade_hamming',
+            'novas_avaliacoes'
+        ])
+
         inicio = time.perf_counter()
+
         for it in range(max_iter):
             iteracao_atual = it + 1
             avaliacoes_antes = len(cache)
             contagem_lideres = []
+
             a = 2 * (1 - it / max_iter)
             novos = []
+
             for lobo in populacao:
-                lideres = escolher_lideres(arquivo, rng, n_grid, alpha, beta)
-                contagem_lideres.append(
-                    len({lider['posicao'].tobytes() for lider in lideres})
+
+                # Seleção dos três líderes pelos hipercubos
+                lideres = escolher_lideres(
+                    arquivo, rng, n_grid, alpha, beta
                 )
+
+                contagem_lideres.append(
+                    len({
+                        lider['posicao'].tobytes()
+                        for lider in lideres
+                    })
+                )
+
+                # Movimentação original do GWO
                 candidatos = []
+
                 for lider in lideres:
                     A = a * (2 * rng.random(n_features) - 1)
                     C = 2 * rng.random(n_features)
-                    D = np.abs(C * lider['posicao'] - lobo['posicao'])
-                    candidatos.append(lider['posicao'] - A * D)
-                media = np.mean(candidatos, axis=0)
-                prob = 1 / (1 + np.exp(-np.clip(10 * (media - 0.5), -50, 50)))
-                mascara = (rng.random(n_features) < prob).astype(np.uint8)
-                # Mutação binária: cada atributo tem 3% de chance de ser invertido
-                bits_mutados = rng.random(n_features) < taxa_mutacao
-                mascara[bits_mutados] = 1 - mascara[bits_mutados]
-                sol = criar_solucao(mascara)
-                
-                novos.append(sol)
-                arquivo = atualizar_arquivo(arquivo, sol, archive_size, rng, n_grid, alpha, gamma)
-            populacao = novos
-            mascaras = np.stack([sol['posicao'] for sol in populacao])
 
-            lobos_distintos = len(np.unique(mascaras, axis=0))
+                    D = np.abs(
+                        C * lider['posicao'] - lobo['posicao']
+                    )
+
+                    candidatos.append(
+                        lider['posicao'] - A * D
+                    )
+
+                media = np.mean(candidatos, axis=0)
+
+                # Binarização probabilística
+                prob = 1 / (
+                    1 + np.exp(
+                        -np.clip(10 * (media - 0.5), -50, 50)
+                    )
+                )
+
+                mascara = (
+                    rng.random(n_features) < prob
+                ).astype(np.uint8)
+
+                # MUTACAO BINARIA
+                # Com taxa 0, não executa nem consome
+                # novos números aleatórios.
+                if taxa_mutacao > 0:
+                    bits_mutados = (
+                        rng.random(n_features) < taxa_mutacao
+                    )
+
+                    mascara[bits_mutados] = (
+                        1 - mascara[bits_mutados]
+                    )
+
+                sol = criar_solucao(mascara)
+
+                novos.append(sol)
+
+                arquivo = atualizar_arquivo(
+                    arquivo, sol, archive_size,
+                    rng, n_grid, alpha, gamma
+                )
+
+            populacao = novos
+
+            # Diagnósticos de diversidade
+            mascaras = np.stack([
+                sol['posicao'] for sol in populacao
+            ])
+
+            lobos_distintos = len(
+                np.unique(mascaras, axis=0)
+            )
 
             distancias = np.mean(
                 mascaras[:, None, :] != mascaras[None, :, :],
@@ -289,12 +377,22 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
                 np.triu_indices(len(populacao), k=1)
             ].mean()
 
-            lideres_distintos_media = np.mean(contagem_lideres)
-            novas_avaliacoes = len(cache) - avaliacoes_antes
-            
-            
-            custos = np.array([s['custo'] for s in arquivo])
-            quantidades = [int(s['posicao'].sum()) for s in arquivo]
+            lideres_distintos_media = np.mean(
+                contagem_lideres
+            )
+
+            novas_avaliacoes = (
+                len(cache) - avaliacoes_antes
+            )
+
+            custos = np.array([
+                s['custo'] for s in arquivo
+            ])
+
+            quantidades = [
+                int(s['posicao'].sum()) for s in arquivo
+            ]
+
             escritor.writerow([
                 it + 1,
                 len(arquivo),
@@ -307,36 +405,56 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
                 diversidade_hamming,
                 novas_avaliacoes
             ])
+
             f.flush()
-            
+
             tempo_decorrido = time.perf_counter() - inicio
             tempo_medio = tempo_decorrido / (it + 1)
-            tempo_restante = tempo_medio * (max_iter - (it + 1))
+            tempo_restante = (
+                tempo_medio * (max_iter - (it + 1))
+            )
 
-            decorrido = str(timedelta(seconds=int(tempo_decorrido)))
-            restante = str(timedelta(seconds=int(tempo_restante)))
+            decorrido = str(timedelta(
+                seconds=int(tempo_decorrido)
+            ))
+
+            restante = str(timedelta(
+                seconds=int(tempo_restante)
+            ))
 
             print(
                 f"Iteração {it+1}/{max_iter} | "
                 f"Pareto: {len(arquivo)} | "
                 f"Avaliados: {len(cache)} | "
-                f"Melhor F1: {1-custos[:,0].min():.5f} | "
-                f"Menor FPR: {custos[:,1].min():.5f} | ",
+                f"Melhor F1: {1-custos[:, 0].min():.5f} | "
+                f"Menor FPR: {custos[:, 1].min():.5f} | ",
                 flush=True
             )
+
+            # Salvamento periódico
             if (it + 1) % 20 == 0:
                 with open(caminho_save, 'wb') as saida:
                     pickle.dump(arquivo, saida)
-                    pd.DataFrame(avaliacoes).to_csv(
-                        'avaliacoes_mogwo_mutacao.csv', index=False
-                    )
+
+                pd.DataFrame(avaliacoes).to_csv(
+                    avaliacoes_csv,
+                    index=False
+                )
+
+    # Salvamento final
     with open(caminho_save, 'wb') as saida:
         pickle.dump(arquivo, saida)
-    print(f"Concluído: {len(arquivo)} soluções não dominadas, {len(cache)} máscaras avaliadas.")
-    
+
     pd.DataFrame(avaliacoes).to_csv(
-    'avaliacoes_mogwo.csv', index=False
-)
+        avaliacoes_csv,
+        index=False
+    )
+
+    print(
+        f"Concluído: {len(arquivo)} soluções não dominadas, "
+        f"{len(cache)} máscaras avaliadas."
+    )
+
     return arquivo
 
 
@@ -464,8 +582,10 @@ if __name__ == '__main__':
         n_lobos=30,
         max_iter=200,
         archive_size=100,
-        caminho_save='arquivo_pareto_mutacao.pkl',
-        seed=123,
-        log_csv='historico_mogwo_mutacao.csv'
+        seed=42,
+        taxa_mutacao=0.03,
+        caminho_save='arquivo_pareto_mutacao_seed42.pkl',
+        log_csv='historico_mogwo_mutacao_seed42.csv',
+        avaliacoes_csv='avaliacoes_mogwo_mutacao_seed42.csv'
     )
     print(f"Soluções no arquivo de Pareto: {len(arquivo_final)}")
