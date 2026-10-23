@@ -321,9 +321,7 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
                 f"Pareto: {len(arquivo)} | "
                 f"Avaliados: {len(cache)} | "
                 f"Melhor F1: {1-custos[:,0].min():.5f} | "
-                f"Menor FPR: {custos[:,1].min():.5f} | "
-                f"Decorrido: {decorrido} | "
-                f"Restante estimado: {restante}",
+                f"Menor FPR: {custos[:,1].min():.5f} | ",
                 flush=True
             )
             if (it + 1) % 20 == 0:
