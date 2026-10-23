@@ -199,6 +199,7 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
            log_csv='historico_mogwo.csv'):
     """mogwo binario com arquivo externo e hipercubos adaptativos"""
     rng = np.random.default_rng(seed)
+    taxa_mutacao = 0.03
     y_treino = np.asarray(y_treino)
     #a mesma divisao usada em todas as avaliacoes dos lobos
     indices = np.arange(len(y_treino))
@@ -265,11 +266,13 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
                     D = np.abs(C * lider['posicao'] - lobo['posicao'])
                     candidatos.append(lider['posicao'] - A * D)
                 media = np.mean(candidatos, axis=0)
-                # probabilidade sigmoide; nao limiar deterministico
                 prob = 1 / (1 + np.exp(-np.clip(10 * (media - 0.5), -50, 50)))
                 mascara = (rng.random(n_features) < prob).astype(np.uint8)
-
+                # Mutação binária: cada atributo tem 3% de chance de ser invertido
+                bits_mutados = rng.random(n_features) < taxa_mutacao
+                mascara[bits_mutados] = 1 - mascara[bits_mutados]
                 sol = criar_solucao(mascara)
+                
                 novos.append(sol)
                 arquivo = atualizar_arquivo(arquivo, sol, archive_size, rng, n_grid, alpha, gamma)
             populacao = novos
@@ -327,7 +330,7 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
                 with open(caminho_save, 'wb') as saida:
                     pickle.dump(arquivo, saida)
                     pd.DataFrame(avaliacoes).to_csv(
-                        'avaliacoes_mogwo.csv', index=False
+                        'avaliacoes_mogwo_mutacao.csv', index=False
                     )
     with open(caminho_save, 'wb') as saida:
         pickle.dump(arquivo, saida)
@@ -413,9 +416,9 @@ def testar_subconjuntos_aleatorios(X_amostra, y_amostra, k=3):
                 f'{contador}/{total} | '
                 f'Atributos: {quantidade} | '
                 f'F1: {1.0 - custo[0]:.6f} | '
-                f'FPR: {custo[1]:.6f} | '
-                f'Decorrido: {decorrido / 60:.1f} min | '
-                f'Restante estimado: {restante / 60:.1f} min',
+                f'FPR: {custo[1]:.6f} | ',
+                #f'Decorrido: {decorrido / 60:.1f} min | '
+                #f'Restante estimado: {restante / 60:.1f} min',
                 flush=True
             )
 
@@ -439,93 +442,32 @@ def testar_subconjuntos_aleatorios(X_amostra, y_amostra, k=3):
     return df_resultados
 
 
-
 if __name__ == '__main__':
     CAMINHO_DATASET = 'data/MachineLearningCVE'
+
+    # 1. Carregamento e pré-processamento
     df = preprocessar(carregar_dataset(CAMINHO_DATASET))
+
+    # 2. Divisão externa: 70% treino e 30% teste
     X_train_scaled, X_test_scaled, y_train, y_test = dividir_normalizar(df)
-    X_amostra, y_amostra = criar_amostra(X_train_scaled, y_train, tamanho=0.10)
-    # Recupera a solucao com menor FPR do teste aleatorio
-    resultados = pd.read_csv(
-        'teste_subconjuntos_aleatorios.csv',
-        dtype={'mascara': str}
-    )
-    solucao = resultados.loc[resultados['fpr'].idxmin()]
 
-    mascara = np.array(
-        [int(bit) for bit in solucao['mascara']],
-        dtype=np.uint8
+    # 3. Amostra estratificada de 10% do treinamento
+    X_amostra, y_amostra = criar_amostra(
+        X_train_scaled,
+        y_train,
+        tamanho=0.10
     )
 
-    atributos = np.flatnonzero(mascara)
-
-    print("\nAtributos selecionados:", atributos.tolist())
-    print("F1 registrado:", solucao['f1_score'])
-    print("FPR registrada:", solucao['fpr'])
-
-    # Reproduz a mesma divisao da otimizacao
-    indices = np.arange(len(y_amostra))
-
-    tr_idx, val_idx = train_test_split(
-        indices,
-        test_size=0.30,
-        stratify=y_amostra,
-        random_state=42
-    )
-
-    X_tr = X_amostra[tr_idx][:, atributos]
-    X_val = X_amostra[val_idx][:, atributos]
-
-    y_tr = y_amostra.iloc[tr_idx]
-    y_val = y_amostra.iloc[val_idx]
-
-    # Treina e avalia o mesmo classificador
-    knn = KNeighborsClassifier(
-        n_neighbors=3,
-        metric='euclidean',
-        n_jobs=-1
-    )
-
-    knn.fit(X_tr, y_tr)
-    pred = knn.predict(X_val)
-
-    tn, fp, fn, tp = confusion_matrix(
-        y_val, pred, labels=[0, 1]
-    ).ravel()
-
-    f1 = f1_score(y_val, pred, zero_division=0)
-    fpr = fp / (fp + tn)
-    recall = tp / (tp + fn) if tp + fn else 0.0
-    precision = tp / (tp + fp) if tp + fp else 0.0
-
-    print("\n===== MATRIZ DE CONFUSAO =====")
-    print(f"Verdadeiros negativos (TN): {tn}")
-    print(f"Falsos positivos (FP): {fp}")
-    print(f"Falsos negativos (FN): {fn}")
-    print(f"Verdadeiros positivos (TP): {tp}")
-
-    print("\n===== METRICAS =====")
-    print(f"F1-score: {f1:.6f}")
-    print(f"FPR: {fpr:.6f}")
-    print(f"Precisao: {precision:.6f}")
-    print(f"Revocacao: {recall:.6f}")
-    print(f"Ataques reais: {tp + fn}")
-    print(f"Ataques detectados: {tp}")
-    print(f"Ataques nao detectados: {fn}")
-    #k = escolher_k(X_amostra, y_amostra)
-    """resultado_teste = testar_subconjuntos_aleatorios(
-                X_amostra,
-                y_amostra.values,
-                k=3
-            )"""
-    """arquivo_final = bmogwo(
-        X_amostra, 
-        y_amostra.values, 
-        k=k,
-        n_lobos=30, 
-        max_iter=200, 
+    # 4. Execução do MOGWO com mutação binária
+    arquivo_final = bmogwo(
+        X_amostra,
+        y_amostra.values,
+        k=3,
+        n_lobos=30,
+        max_iter=200,
         archive_size=100,
-        caminho_save='arquivo_pareto.pkl', 
-        seed=123)"""
-        
-        
+        caminho_save='arquivo_pareto_mutacao.pkl',
+        seed=123,
+        log_csv='historico_mogwo_mutacao.csv'
+    )
+    print(f"Soluções no arquivo de Pareto: {len(arquivo_final)}")
