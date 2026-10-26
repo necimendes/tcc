@@ -195,17 +195,15 @@ def atualizar_arquivo(arquivo, candidato, capacidade, rng,
 
 
 def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
-           archive_size=100, caminho_save='arquivo_pareto_mutacao.pkl',
+           archive_size=100, caminho_save='arquivo_pareto.pkl',
            seed=42, n_grid=10, alpha=0.1, beta=4, gamma=2,
-           log_csv='historico_mogwo_mutacao.csv',
-           avaliacoes_csv='avaliacoes_mogwo_mutacao.csv',
-           taxa_mutacao=0.03):
-    """MOGWO binário com hipercubos adaptativos e mutação opcional."""
+           log_csv='historico_mogwo.csv',
+           avaliacoes_csv='avaliacoes_mogwo.csv',
+           p_remover=0.05, p_adicionar=0.015):
 
     rng = np.random.default_rng(seed)
     y_treino = np.asarray(y_treino)
 
-    # Mesma divisão em todas as avaliações dos lobos
     indices = np.arange(len(y_treino))
     tr_idx, val_idx = train_test_split(
         indices,
@@ -336,17 +334,14 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
                     rng.random(n_features) < prob
                 ).astype(np.uint8)
 
-                # MUTACAO BINARIA
-                # Com taxa 0, não executa nem consome
-                # novos números aleatórios.
-                if taxa_mutacao > 0:
-                    bits_mutados = (
-                        rng.random(n_features) < taxa_mutacao
-                    )
+                if p_remover > 0 or p_adicionar > 0:
+                    sorteios = rng.random(n_features)
 
-                    mascara[bits_mutados] = (
-                        1 - mascara[bits_mutados]
-                    )
+                    remover = (mascara == 1) & (sorteios < p_remover)
+                    adicionar = (mascara == 0) & (sorteios < p_adicionar)
+
+                    mascara[remover] = 0
+                    mascara[adicionar] = 1
 
                 sol = criar_solucao(mascara)
 
@@ -583,7 +578,7 @@ if __name__ == '__main__':
         max_iter=200,
         archive_size=100,
         seed=42,
-        taxa_mutacao=0.03,
+        taxa_mutacao=0.0,
         caminho_save='arquivo_pareto_mutacao_seed42.pkl',
         log_csv='historico_mogwo_mutacao_seed42.csv',
         avaliacoes_csv='avaliacoes_mogwo_mutacao_seed42.csv'
