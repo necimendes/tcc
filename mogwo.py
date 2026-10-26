@@ -583,7 +583,7 @@ if __name__ == '__main__':
         max_iter=200,
         archive_size=100,
         seed=42,
-        taxa_mutacao=0.03,
+        taxa_mutacao=0.0,
         caminho_save='arquivo_pareto_mutacao_seed42.pkl',
         log_csv='historico_mogwo_mutacao_seed42.csv',
         avaliacoes_csv='avaliacoes_mogwo_mutacao_seed42.csv'
