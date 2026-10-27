@@ -17,19 +17,19 @@ def carregar_dataset(caminho):
             print(f"{arquivo}: {df_temp.shape}")
             dfs.append(df_temp)
     df = pd.concat(dfs, ignore_index=True)
-    print(f"\nDataset completo: {df.shape}")
+    print(f"\ndataset completo: {df.shape}")
     return df
 
 def preprocessar(df):
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     antes = len(df)
     df.dropna(inplace=True)
-    print(f"Removidos por ausente/infinito: {antes - len(df)}")
+    print(f"removidos por ausente/infinito: {antes - len(df)}")
     antes = len(df)
     df.drop_duplicates(inplace=True)
-    print(f"Removidos por duplicata: {antes - len(df)}")
+    print(f"removidos por duplicata: {antes - len(df)}")
     df[' Label'] = df[' Label'].apply(lambda x: 0 if x.strip() == 'BENIGN' else 1)
-    print(f"Total após limpeza: {len(df)}")
+    print(f"total após limpeza: {len(df)}")
     print(df[' Label'].value_counts())
     return df
 
@@ -41,7 +41,7 @@ def dividir_normalizar(df):
     scaler = MinMaxScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
-    print(f"Treino: {X_train_scaled.shape[0]} | Teste: {X_test_scaled.shape[0]}")
+    print(f"treino: {X_train_scaled.shape[0]} | teste: {X_test_scaled.shape[0]}")
     return X_train_scaled, X_test_scaled, y_train, y_test
 
 def criar_amostra(X_train_scaled, y_train, tamanho=0.10):
@@ -49,7 +49,7 @@ def criar_amostra(X_train_scaled, y_train, tamanho=0.10):
     idx, _ = next(sss.split(X_train_scaled, y_train))
     X_amostra = X_train_scaled[idx]
     y_amostra = y_train.iloc[idx].reset_index(drop=True)
-    print(f"Amostra: {len(X_amostra)} registros")
+    print(f"amostra: {len(X_amostra)} registros")
     return X_amostra, y_amostra
 
 def escolher_k(X_amostra, y_amostra, ks=[3, 5, 7, 9]):
@@ -422,11 +422,11 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
             ))
 
             print(
-                f"Iteração {it+1}/{max_iter} | "
-                f"Pareto: {len(arquivo)} | "
-                f"Avaliados: {len(cache)} | "
-                f"Melhor F1: {1-custos[:, 0].min():.5f} | "
-                f"Menor FPR: {custos[:, 1].min():.5f} | ",
+                f"iteração {it+1}/{max_iter}  "
+                f"pareto: {len(arquivo)}  "
+                f"avaliados: {len(cache)}  "
+                f"melhor f1: {1-custos[:, 0].min():.5f}  "
+                f"menor fpr: {custos[:, 1].min():.5f}  ",
                 flush=True
             )
 
