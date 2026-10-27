@@ -78,13 +78,17 @@ def domina(a, b):
 def avaliar_subconjunto(posicao, X_tr, X_val, y_tr, y_val, k):
     indices = np.flatnonzero(posicao)
     if len(indices) == 0:
-        return np.array([1.0, 1.0])
+        return np.array([1.0, 1.0, 1.0])
     knn = KNeighborsClassifier(n_neighbors=k, metric='euclidean', n_jobs=-1)
     knn.fit(X_tr[:, indices], y_tr)
     pred = knn.predict(X_val[:, indices])
     f1 = f1_score(y_val, pred, zero_division=0)
     tn, fp, _, _ = confusion_matrix(y_val, pred, labels=[0, 1]).ravel()
-    return np.array([1.0 - f1, fp / (fp + tn) if fp + tn else 0.0])
+    return np.array([
+        1.0 - f1,
+        fp / (fp + tn) if fp + tn else 0.0,
+        len(indices) / len(posicao)
+    ])
 
 
 def criar_hipercubos(arquivo, n_grid=10, alpha=0.1):
@@ -578,10 +582,10 @@ if __name__ == '__main__':
         max_iter=200,
         archive_size=100,
         seed=42,
-        p_remover=0.05,
-        p_adicionar=0.015,
-        caminho_save='arquivo_pareto_mutacao_assimetrica_seed42.pkl',
-        log_csv='historico_mogwo_mutacao_assimetrica_seed42.csv',
-        avaliacoes_csv='avaliacoes_mogwo_mutacao_assimetrica_seed42.csv'
+        p_remover=0.0,
+        p_adicionar=0.0,
+        caminho_save='arquivo_pareto_3objetivos_seed42.pkl',
+        log_csv='historico_mogwo_3objetivos_seed42.csv',
+        avaliacoes_csv='avaliacoes_mogwo_3objetivos_seed42.csv'
     )
-    print(f"Soluções no arquivo de Pareto: {len(arquivo_final)}")
+    print(f"soluções: {len(arquivo_final)}")
