@@ -423,13 +423,11 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
             ))
 
             print(
-                f"Iteração {it+1}/{max_iter} | "
-                f"Pareto: {len(arquivo)} | "
-                f"Avaliados: {len(cache)} | "
-                f"Melhor F1: {1-custos[:, 0].min():.5f} | "
-                f"Menor FPR: {custos[:, 1].min():.5f} | "
-                f"Reinicializacoes: {reinicializacoes_it} | "
-                f"Restante estimado: {restante}",
+                f"iteração {it+1}/{max_iter}   "
+                f"pareto: {len(arquivo)}   "
+                f"avaliados: {len(cache)}   "
+                f"melhor f1: {1-custos[:, 0].min():.5f}   "
+                f"menor fpr: {custos[:, 1].min():.5f}"   ,
                 flush=True
             )
 
@@ -491,4 +489,4 @@ if __name__ == '__main__':
         log_csv='historico_mogwo_reinicializacao_seed42.csv',
         avaliacoes_csv='avaliacoes_mogwo_reinicializacao_seed42.csv'
     )
-    print(f"Soluções no arquivo de Pareto: {len(arquivo_final)}")
+    print(f"soluções: {len(arquivo_final)}")
