@@ -70,9 +70,49 @@ import csv
 import copy
 
 
+F1_MIN = 0.99
+FPR_MAX = 0.002
+
+
+def violacao(custo):
+    erro_f1 = max(
+        0.0, custo[0] - (1.0 - F1_MIN)
+    ) / (1.0 - F1_MIN)
+
+    excesso_fpr = max(
+        0.0, custo[1] - FPR_MAX
+    ) / FPR_MAX
+
+    return erro_f1 + excesso_fpr
+
+
 def domina(a, b):
-    """ambos os custos são minimizados: [1-F1, FPR]"""
-    return bool(np.all(a <= b) and np.any(a < b))
+    va = violacao(a)
+    vb = violacao(b)
+
+    # Uma solução viável domina qualquer solução inviável
+    if va == 0 and vb > 0:
+        return True
+
+    if va > 0 and vb == 0:
+        return False
+
+    # Se ambas forem inviáveis, prioriza a menor violação
+    if va > 0 and vb > 0:
+        return va < vb
+
+    # Se ambas forem viáveis, compara F1 e atributos
+    objetivos_a = a[[0, 2]]
+    objetivos_b = b[[0, 2]]
+
+    # Empate nos objetivos: preserva a menor FPR
+    if np.array_equal(objetivos_a, objetivos_b):
+        return bool(a[1] < b[1])
+
+    return bool(
+        np.all(objetivos_a <= objetivos_b)
+        and np.any(objetivos_a < objetivos_b)
+    )
 
 
 def avaliar_subconjunto(posicao, X_tr, X_val, y_tr, y_val, k):
@@ -93,7 +133,10 @@ def avaliar_subconjunto(posicao, X_tr, X_val, y_tr, y_val, k):
 
 def criar_hipercubos(arquivo, n_grid=10, alpha=0.1):
     """identifica o hipercubo de cada solução no espaço dos objetivos"""
-    custos = np.array([sol['custo'] for sol in arquivo])
+    custos = np.array([
+        [sol['custo'][0], sol['custo'][2]]
+        for sol in arquivo
+    ])
     limites_por_objetivo = []
 
     for j in range(custos.shape[1]):
@@ -247,7 +290,9 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
                 'mascara': ''.join(map(str, mascara)),
                 'n_atributos': int(mascara.sum()),
                 'f1_score': 1.0 - custo[0],
-                'fpr': custo[1]
+                'fpr': custo[1],
+                'viavel': violacao(custo) == 0,
+                'violacao': violacao(custo)
             })
 
         return {
@@ -584,8 +629,8 @@ if __name__ == '__main__':
         seed=42,
         p_remover=0.0,
         p_adicionar=0.0,
-        caminho_save='arquivo_pareto_3objetivos_seed42.pkl',
-        log_csv='historico_mogwo_3objetivos_seed42.csv',
-        avaliacoes_csv='avaliacoes_mogwo_3objetivos_seed42.csv'
+        caminho_save='arquivo_pareto_restrito_seed42.pkl',
+        log_csv='historico_mogwo_restrito_seed42.csv',
+        avaliacoes_csv='avaliacoes_mogwo_restrito_seed42.csv'
     )
     print(f"soluções: {len(arquivo_final)}")
