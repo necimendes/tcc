@@ -1,3 +1,8 @@
+# MOGWO com dois objetivos: maximizar F1-score e minimizar FPR.
+# Uma selecao auxiliar de solucoes de alto desempenho e feita SOMENTE
+# depois da otimizacao; ela nao interfere no algoritmo nem na dominancia.
+# "avaliacoes.csv" e "solucoes.csv" usam VALIDACAO INTERNA, nao teste externo.
+
 import numpy as np
 import pandas as pd
 import os
@@ -70,55 +75,15 @@ import csv
 import copy
 
 
-F1_MIN = 0.99
-FPR_MAX = 0.002
-
-
-def violacao(custo):
-    erro_f1 = max(
-        0.0, custo[0] - (1.0 - F1_MIN)
-    ) / (1.0 - F1_MIN)
-
-    excesso_fpr = max(
-        0.0, custo[1] - FPR_MAX
-    ) / FPR_MAX
-
-    return erro_f1 + excesso_fpr
-
-
 def domina(a, b):
-    va = violacao(a)
-    vb = violacao(b)
-
-    # Uma solução viável domina qualquer solução inviável
-    if va == 0 and vb > 0:
-        return True
-
-    if va > 0 and vb == 0:
-        return False
-
-    # Se ambas forem inviáveis, prioriza a menor violação
-    if va > 0 and vb > 0:
-        return va < vb
-
-    # Se ambas forem viáveis, compara F1 e atributos
-    objetivos_a = a[[0, 2]]
-    objetivos_b = b[[0, 2]]
-
-    # Empate nos objetivos: preserva a menor FPR
-    if np.array_equal(objetivos_a, objetivos_b):
-        return bool(a[1] < b[1])
-
-    return bool(
-        np.all(objetivos_a <= objetivos_b)
-        and np.any(objetivos_a < objetivos_b)
-    )
+    """Dominância de Pareto: minimiza [1 - F1, FPR]."""
+    return bool(np.all(a <= b) and np.any(a < b))
 
 
 def avaliar_subconjunto(posicao, X_tr, X_val, y_tr, y_val, k):
     indices = np.flatnonzero(posicao)
     if len(indices) == 0:
-        return np.array([1.0, 1.0, 1.0])
+        return np.array([1.0, 1.0])
     knn = KNeighborsClassifier(n_neighbors=k, metric='euclidean', n_jobs=-1)
     knn.fit(X_tr[:, indices], y_tr)
     pred = knn.predict(X_val[:, indices])
@@ -126,17 +91,13 @@ def avaliar_subconjunto(posicao, X_tr, X_val, y_tr, y_val, k):
     tn, fp, _, _ = confusion_matrix(y_val, pred, labels=[0, 1]).ravel()
     return np.array([
         1.0 - f1,
-        fp / (fp + tn) if fp + tn else 0.0,
-        len(indices) / len(posicao)
+        fp / (fp + tn) if fp + tn else 0.0
     ])
 
 
 def criar_hipercubos(arquivo, n_grid=10, alpha=0.1):
     """identifica o hipercubo de cada solução no espaço dos objetivos"""
-    custos = np.array([
-        [sol['custo'][0], sol['custo'][2]]
-        for sol in arquivo
-    ])
+    custos = np.array([sol['custo'] for sol in arquivo])
     limites_por_objetivo = []
 
     for j in range(custos.shape[1]):
@@ -241,12 +202,110 @@ def atualizar_arquivo(arquivo, candidato, capacidade, rng,
 
 
 
+def selecionar_solucoes_apresentaveis(avaliacoes, arquivo_pareto,
+                                      caminho='solucoes.csv',
+                                      f1_min=0.992, fpr_max=0.002,
+                                      quantidade=30):
+    """Seleciona alternativas boas e variadas, SEM alterar o arquivo de Pareto.
+
+    Seleção a posteriori com métricas da VALIDACAO interna. Para manter
+    pontos diferentes no gráfico, retém apenas um representante por par
+    exato (F1, FPR). Inclui os pontos de Pareto e usa distância máxima
+    nos dois objetivos normalizados para completar a amostra de 30.
+    Essa amostra NÃO é uma fronteira de Pareto.
+    """
+    dados = pd.DataFrame(avaliacoes)
+    mascaras_pareto = {
+        ''.join(map(str, sol['posicao'])) for sol in arquivo_pareto
+    }
+    boas = (
+        (dados['f1_score'] >= f1_min) &
+        (dados['fpr'] <= fpr_max)
+    )
+    # Preserva os pontos do Pareto mesmo que os limites sejam alterados depois.
+    candidatas = dados.loc[
+        boas | dados['mascara'].isin(mascaras_pareto)
+    ].copy()
+    candidatas['no_pareto'] = candidatas['mascara'].isin(mascaras_pareto)
+    candidatas.sort_values(
+        ['no_pareto', 'f1_score', 'fpr', 'n_atributos'],
+        ascending=[False, False, True, True],
+        kind='stable',
+        inplace=True
+    )
+    # Mantém uma máscara por par de objetivos; quando houver empate,
+    # prefere ponto do Pareto, depois menor número de atributos.
+    candidatas.drop_duplicates(
+        subset=['f1_score', 'fpr'], keep='first', inplace=True
+    )
+    candidatas.reset_index(drop=True, inplace=True)
+
+    if candidatas.empty:
+        pd.DataFrame(columns=[
+            'solucao', 'tipo', 'iteracao', 'mascara', 'n_atributos',
+            'f1_score', 'fpr', 'etapa'
+        ]).to_csv(caminho, index=False)
+        print('Nenhuma solução atende aos critérios de apresentação.')
+        return
+
+    # Garante que todos os pontos estritamente não dominados estejam incluídos.
+    selecionados = list(np.flatnonzero(candidatas['no_pareto'].to_numpy()))
+    if len(selecionados) > quantidade:
+        print('Aviso: há mais soluções de Pareto que o limite solicitado; '
+              'todas serão mantidas em solucoes.csv.')
+
+    # Completa com pontos variados NO GRÁFICO F1 x FPR.
+    valores = candidatas[['f1_score', 'fpr']].to_numpy(dtype=float)
+    mn, mx = valores.min(axis=0), valores.max(axis=0)
+    valores_normalizados = (valores - mn) / np.maximum(mx - mn, 1e-12)
+    minimo_distancia = np.full(len(candidatas), np.inf)
+    for indice in selecionados:
+        dist = np.linalg.norm(valores_normalizados - valores_normalizados[indice], axis=1)
+        minimo_distancia = np.minimum(minimo_distancia, dist)
+    if not selecionados:
+        primeiro = int(candidatas['f1_score'].idxmax())
+        selecionados.append(primeiro)
+        minimo_distancia = np.linalg.norm(
+            valores_normalizados - valores_normalizados[primeiro], axis=1
+        )
+
+    while len(selecionados) < min(quantidade, len(candidatas)):
+        minimo_distancia[selecionados] = -1.0
+        proximo = int(np.argmax(minimo_distancia))
+        selecionados.append(proximo)
+        dist = np.linalg.norm(
+            valores_normalizados - valores_normalizados[proximo], axis=1
+        )
+        minimo_distancia = np.minimum(minimo_distancia, dist)
+
+    escolhidas = candidatas.iloc[selecionados].copy()
+    escolhidas.sort_values(
+        ['fpr', 'f1_score'], ascending=[True, False], inplace=True
+    )
+    escolhidas.insert(
+        0, 'solucao', [f'S{i:02d}' for i in range(1, len(escolhidas) + 1)]
+    )
+    escolhidas.insert(
+        1, 'tipo', np.where(escolhidas['no_pareto'], 'Pareto', 'Alto desempenho')
+    )
+    escolhidas['etapa'] = 'validacao_interna'
+    escolhidas = escolhidas[[
+        'solucao', 'tipo', 'iteracao', 'mascara', 'n_atributos',
+        'f1_score', 'fpr', 'etapa'
+    ]]
+    escolhidas.to_csv(caminho, index=False)
+    print(f'Solucoes de alto desempenho em {caminho}: {len(escolhidas)} '
+          f'({int((escolhidas.tipo == "Pareto").sum())} da fronteira).')
+    print(f'Criterios indicativos para as demais: F1 >= {f1_min}; '
+          f'FPR <= {fpr_max}. Ainda nao avaliadas no teste externo.')
+
+
 def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
-           archive_size=100, caminho_save='arquivo_pareto.pkl',
-           seed=42, n_grid=10, alpha=0.1, beta=4, gamma=2,
-           log_csv='historico_mogwo.csv',
-           avaliacoes_csv='avaliacoes_mogwo.csv',
-           p_remover=0.05, p_adicionar=0.015):
+           archive_size=100, caminho_save='pareto.pkl',
+           seed=123, n_grid=10, alpha=0.1, beta=4, gamma=2,
+           log_csv='historico.csv',
+           avaliacoes_csv='avaliacoes.csv',
+           solucoes_csv='solucoes.csv'):
 
     rng = np.random.default_rng(seed)
     y_treino = np.asarray(y_treino)
@@ -290,9 +349,7 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
                 'mascara': ''.join(map(str, mascara)),
                 'n_atributos': int(mascara.sum()),
                 'f1_score': 1.0 - custo[0],
-                'fpr': custo[1],
-                'viavel': violacao(custo) == 0,
-                'violacao': violacao(custo)
+                'fpr': custo[1]
             })
 
         return {
@@ -382,15 +439,6 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
                 mascara = (
                     rng.random(n_features) < prob
                 ).astype(np.uint8)
-
-                if p_remover > 0 or p_adicionar > 0:
-                    sorteios = rng.random(n_features)
-
-                    remover = (mascara == 1) & (sorteios < p_remover)
-                    adicionar = (mascara == 0) & (sorteios < p_adicionar)
-
-                    mascara[remover] = 0
-                    mascara[adicionar] = 1
 
                 sol = criar_solucao(mascara)
 
@@ -492,6 +540,11 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
     pd.DataFrame(avaliacoes).to_csv(
         avaliacoes_csv,
         index=False
+    )
+
+    selecionar_solucoes_apresentaveis(
+        avaliacoes, arquivo, caminho=solucoes_csv,
+        f1_min=0.992, fpr_max=0.002, quantidade=30
     )
 
     print(
@@ -618,7 +671,8 @@ if __name__ == '__main__':
         tamanho=0.10
     )
 
-    # 4. Execução do MOGWO com mutação binária
+    # 4. MOGWO original: dois objetivos, SEM mutação, semente da busca 123.
+    # Histórico, avaliações internas e Pareto são mantidos separadamente.
     arquivo_final = bmogwo(
         X_amostra,
         y_amostra.values,
@@ -626,11 +680,10 @@ if __name__ == '__main__':
         n_lobos=30,
         max_iter=200,
         archive_size=100,
-        seed=42,
-        p_remover=0.0,
-        p_adicionar=0.0,
-        caminho_save='arquivo_pareto_restrito_seed42.pkl',
-        log_csv='historico_mogwo_restrito_seed42.csv',
-        avaliacoes_csv='avaliacoes_mogwo_restrito_seed42.csv'
+        seed=123,
+        caminho_save='pareto.pkl',
+        log_csv='historico.csv',
+        avaliacoes_csv='avaliacoes.csv',
+        solucoes_csv='solucoes.csv'
     )
     print(f"soluções: {len(arquivo_final)}")
