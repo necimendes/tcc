@@ -18,17 +18,15 @@ COLUNAS_ENTRADA = {
 
 
 def carregar_solucoes(caminho: Path) -> list[dict]:
-    if not caminho.is_file():
-        raise FileNotFoundError(f'Não encontrei {caminho}. Execute primeiro mogwo.py.')
-
+   
     dados = pd.read_csv(caminho, dtype={'mascara': str, 'solucao': str, 'tipo': str})
     faltantes = COLUNAS_ENTRADA.difference(dados.columns)
     if faltantes:
-        raise ValueError(f'Colunas ausentes em {caminho}: {sorted(faltantes)}')
+        raise ValueError(f'colunas ausentes em {caminho}: {sorted(faltantes)}')
     if dados.empty:
         raise ValueError('solucoes.csv está vazio.')
     if dados['solucao'].duplicated().any() or dados['mascara'].duplicated().any():
-        raise ValueError('Há IDs ou máscaras repetidos em solucoes.csv.')
+        raise ValueError('há ids ou máscaras repetidos em solucoes.csv.')
 
     solucoes = []
     comprimento = None
@@ -36,19 +34,19 @@ def carregar_solucoes(caminho: Path) -> list[dict]:
         identificador = str(linha['solucao'])
         mascara_str = str(linha['mascara'])
         if not mascara_str or set(mascara_str) - {'0', '1'}:
-            raise ValueError(f'Máscara não binária: {identificador}.')
+            raise ValueError(f'máscara não binária: {identificador}.')
         if comprimento is None:
             comprimento = len(mascara_str)
         if len(mascara_str) != comprimento:
-            raise ValueError('As máscaras não possuem o mesmo comprimento.')
+            raise ValueError('as máscaras não possuem o mesmo comprimento.')
         mascara = np.fromiter((int(bit) for bit in mascara_str), dtype=np.uint8)
         numero_atributos = int(mascara.sum())
         if numero_atributos == 0 or numero_atributos != int(linha['n_atributos']):
-            raise ValueError(f'Quantidade de atributos inconsistente: {identificador}.')
+            raise ValueError(f'quantidade de atributos inconsistente: {identificador}.')
         f1_val = float(linha['f1_score'])
         fpr_val = float(linha['fpr'])
         if not (np.isfinite(f1_val) and np.isfinite(fpr_val)):
-            raise ValueError(f'Métricas inválidas: {identificador}.')
+            raise ValueError(f'métricas inválidas: {identificador}.')
         solucoes.append({
             'solucao': identificador,
             'tipo': str(linha['tipo']),
@@ -73,7 +71,7 @@ def carregar_resultados_anteriores(caminho: Path, solucoes: list[dict]) -> list[
         raise ValueError(f'{caminho} não tem as colunas esperadas; não vou sobrescrevê-lo.')
     referencias = {s['solucao']: s for s in solucoes}
     if tabela['solucao'].duplicated().any():
-        raise ValueError(f'IDs duplicados em {caminho}.')
+        raise ValueError(f'ids duplicados em {caminho}.')
     for _, linha in tabela.iterrows():
         sol = referencias.get(str(linha['solucao']))
         if (sol is None
@@ -82,17 +80,17 @@ def carregar_resultados_anteriores(caminho: Path, solucoes: list[dict]) -> list[
             or not np.isclose(float(linha['f1_validacao']), sol['f1_validacao'], atol=1e-12, rtol=0)
             or not np.isclose(float(linha['fpr_validacao']), sol['fpr_validacao'], atol=1e-12, rtol=0)):
             raise ValueError(
-                f'{caminho} corresponde a outra seleção. Renomeie antes de iniciar.'
+                f'{caminho} corresponde a outra seleção.'
             )
     return tabela.to_dict('records')
 
 
 def carregar_dataset(caminho: Path) -> pd.DataFrame:
     if not caminho.is_dir():
-        raise FileNotFoundError(f'Pasta não encontrada: {caminho}')
+        raise FileNotFoundError(f'pasta não encontrada: {caminho}')
     arquivos = sorted(caminho.glob('*.csv'))
     if not arquivos:
-        raise FileNotFoundError(f'Não há CSVs em {caminho}')
+        raise FileNotFoundError(f'não há csvs em {caminho}')
 
     partes = []
     for arquivo in arquivos:
@@ -102,20 +100,20 @@ def carregar_dataset(caminho: Path) -> pd.DataFrame:
     df = pd.concat(partes, ignore_index=True)
     del partes
     if COLUNA_CLASSE not in df.columns:
-        raise ValueError(f'Coluna {COLUNA_CLASSE!r} não encontrada.')
+        raise ValueError(f'coluna {COLUNA_CLASSE!r} não encontrada.')
 
-    print(f'\nDataset completo: {df.shape}', flush=True)
+    print(f'\ndataset completo: {df.shape}', flush=True)
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     antes = len(df)
     df.dropna(inplace=True)
-    print(f'Removidos por ausente/infinito: {antes - len(df)}', flush=True)
+    print(f'removidos por ausente/infinito: {antes - len(df)}', flush=True)
     antes = len(df)
     df.drop_duplicates(inplace=True)
-    print(f'Removidos por duplicata: {antes - len(df)}', flush=True)
+    print(f'removidos por duplicata: {antes - len(df)}', flush=True)
     df[COLUNA_CLASSE] = df[COLUNA_CLASSE].apply(
         lambda x: 0 if x.strip() == 'BENIGN' else 1
     )
-    print(f'Total após limpeza: {len(df)}', flush=True)
+    print(f'total após limpeza: {len(df)}', flush=True)
     print(df[COLUNA_CLASSE].value_counts(), flush=True)
     return df
 
@@ -129,16 +127,15 @@ def avaliar_uma(df: pd.DataFrame, colunas: list[int], y: np.ndarray,
     y_treino = y[indices_treino]
     y_teste = y[indices_teste]
 
-    print(f"\nSolução {sol['solucao']} [{sol['tipo']}] — "
+    print(f"\nsolução {sol['solucao']} [{sol['tipo']}] — "
           f"{sol['n_atributos']} atributos", flush=True)
-    print('Preparando os dados selecionados e ajustando normalização no treino...', flush=True)
    
     X_treino = df.iloc[indices_treino, posicoes_df].to_numpy(dtype=np.float64, copy=True)
     scaler = MinMaxScaler(copy=False)
     X_treino = scaler.fit_transform(X_treino)
 
     modelo = KNeighborsClassifier(n_neighbors=3, metric='euclidean', n_jobs=-1)
-    print(f'Treinando k-NN em {len(y_treino):,} amostras...', flush=True)
+    print(f'treinando knn em {len(y_treino):,} amostras', flush=True)
     modelo.fit(X_treino, y_treino)
 
     tn = fp = fn = tp = 0
@@ -156,7 +153,7 @@ def avaliar_uma(df: pd.DataFrame, colunas: list[int], y: np.ndarray,
         tp += int(np.count_nonzero((verdadeiros == 1) & (previstos == 1)))
 
         if numero_lote == 1 or numero_lote % 50 == 0 or numero_lote == n_lotes:
-            print(f"  Teste {fim_lote:,}/{len(indices_teste):,} "
+            print(f"  teste {fim_lote:,}/{len(indices_teste):,} "
                   f"({100 * fim_lote / len(indices_teste):.1f}%)", flush=True)
 
     precisao = tp / (tp + fp) if tp + fp else 0.0
@@ -228,7 +225,6 @@ def main() -> None:
     )
     print(f'\ntreino externo: {len(indices_treino):,}; '
           f'teste externo: {len(indices_teste):,}.', flush=True)
-    print('o teste nao é usado para escolher máscaras.', flush=True)
 
     ordem = {s['solucao']: i for i, s in enumerate(solucoes)}
     for sol in pendentes:
