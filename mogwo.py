@@ -1,8 +1,3 @@
-# MOGWO com dois objetivos: maximizar F1-score e minimizar FPR.
-# Uma selecao auxiliar de solucoes de alto desempenho e feita SOMENTE
-# depois da otimizacao; ela nao interfere no algoritmo nem na dominancia.
-# "avaliacoes.csv" e "solucoes.csv" usam VALIDACAO INTERNA, nao teste externo.
-
 import numpy as np
 import pandas as pd
 import os
@@ -64,7 +59,7 @@ def escolher_k(X_amostra, y_amostra, ks=[3, 5, 7, 9]):
         cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
         scores = cross_val_score(knn, X_amostra, y_amostra, cv=cv, scoring='f1', n_jobs=-1)
         resultados[k] = scores
-        print(f"k={k}: F1 médio={scores.mean():.4f} | desvio={scores.std():.4f}")
+        print(f"k={k}: fi médio={scores.mean():.4f} | desvio={scores.std():.4f}")
     k_escolhido = max(resultados, key=lambda k: resultados[k].mean())
     print(f"\nk escolhido: {k_escolhido}")
     return k_escolhido
@@ -76,7 +71,7 @@ import copy
 
 
 def domina(a, b):
-    """Dominância de Pareto: minimiza [1 - F1, FPR]."""
+    """dominancia de pareto minimiza [1 - f1, fpr]."""
     return bool(np.all(a <= b) and np.any(a < b))
 
 
@@ -206,14 +201,7 @@ def selecionar_solucoes_apresentaveis(avaliacoes, arquivo_pareto,
                                       caminho='solucoes.csv',
                                       f1_min=0.992, fpr_max=0.002,
                                       quantidade=30):
-    """Seleciona alternativas boas e variadas, SEM alterar o arquivo de Pareto.
 
-    Seleção a posteriori com métricas da VALIDACAO interna. Para manter
-    pontos diferentes no gráfico, retém apenas um representante por par
-    exato (F1, FPR). Inclui os pontos de Pareto e usa distância máxima
-    nos dois objetivos normalizados para completar a amostra de 30.
-    Essa amostra NÃO é uma fronteira de Pareto.
-    """
     dados = pd.DataFrame(avaliacoes)
     mascaras_pareto = {
         ''.join(map(str, sol['posicao'])) for sol in arquivo_pareto
@@ -222,7 +210,7 @@ def selecionar_solucoes_apresentaveis(avaliacoes, arquivo_pareto,
         (dados['f1_score'] >= f1_min) &
         (dados['fpr'] <= fpr_max)
     )
-    # Preserva os pontos do Pareto mesmo que os limites sejam alterados depois.
+    
     candidatas = dados.loc[
         boas | dados['mascara'].isin(mascaras_pareto)
     ].copy()
@@ -233,8 +221,7 @@ def selecionar_solucoes_apresentaveis(avaliacoes, arquivo_pareto,
         kind='stable',
         inplace=True
     )
-    # Mantém uma máscara por par de objetivos; quando houver empate,
-    # prefere ponto do Pareto, depois menor número de atributos.
+    
     candidatas.drop_duplicates(
         subset=['f1_score', 'fpr'], keep='first', inplace=True
     )
@@ -248,13 +235,13 @@ def selecionar_solucoes_apresentaveis(avaliacoes, arquivo_pareto,
         print('Nenhuma solução atende aos critérios de apresentação.')
         return
 
-    # Garante que todos os pontos estritamente não dominados estejam incluídos.
+    # garante que todos os pontos estritamente n dominados estejam incluidos
     selecionados = list(np.flatnonzero(candidatas['no_pareto'].to_numpy()))
     if len(selecionados) > quantidade:
         print('Aviso: há mais soluções de Pareto que o limite solicitado; '
               'todas serão mantidas em solucoes.csv.')
 
-    # Completa com pontos variados NO GRÁFICO F1 x FPR.
+    # completa com pontos variados em f1 x fpr
     valores = candidatas[['f1_score', 'fpr']].to_numpy(dtype=float)
     mn, mx = valores.min(axis=0), valores.max(axis=0)
     valores_normalizados = (valores - mn) / np.maximum(mx - mn, 1e-12)
@@ -294,10 +281,10 @@ def selecionar_solucoes_apresentaveis(avaliacoes, arquivo_pareto,
         'f1_score', 'fpr', 'etapa'
     ]]
     escolhidas.to_csv(caminho, index=False)
-    print(f'Solucoes de alto desempenho em {caminho}: {len(escolhidas)} '
-          f'({int((escolhidas.tipo == "Pareto").sum())} da fronteira).')
-    print(f'Criterios indicativos para as demais: F1 >= {f1_min}; '
-          f'FPR <= {fpr_max}. Ainda nao avaliadas no teste externo.')
+    print(f'solucoes de alto desempenho em {caminho}: {len(escolhidas)} '
+          f'({int((escolhidas.tipo == "pareto").sum())} da fronteira).')
+    print(f'criterios indicativos para as demais: f1 >= {f1_min}; '
+          f'fpr <= {fpr_max}. ainda nao avaliadas no teste externo.')
 
 
 def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
@@ -357,7 +344,7 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
             'custo': cache[chave].copy()
         }
 
-    # Inicialização da população
+    # inicializacao da populacao
     for i in range(n_lobos):
         densidade = (i + 1) / (n_lobos + 1)
 
@@ -400,7 +387,7 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
 
             for lobo in populacao:
 
-                # Seleção dos três líderes pelos hipercubos
+                # selcao dos tres lideres pelos hipercubos
                 lideres = escolher_lideres(
                     arquivo, rng, n_grid, alpha, beta
                 )
@@ -412,7 +399,7 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
                     })
                 )
 
-                # Movimentação original do GWO
+                # movimentacao original do gwo
                 candidatos = []
 
                 for lider in lideres:
@@ -429,7 +416,7 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
 
                 media = np.mean(candidatos, axis=0)
 
-                # Binarização probabilística
+                # binarizacao probabilistica
                 prob = 1 / (
                     1 + np.exp(
                         -np.clip(10 * (media - 0.5), -50, 50)
@@ -451,7 +438,7 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
 
             populacao = novos
 
-            # Diagnósticos de diversidade
+            # diagnosticos de diversidade
             mascaras = np.stack([
                 sol['posicao'] for sol in populacao
             ])
@@ -523,7 +510,7 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
                 flush=True
             )
 
-            # Salvamento periódico
+            # salvamento periodico
             if (it + 1) % 20 == 0:
                 with open(caminho_save, 'wb') as saida:
                     pickle.dump(arquivo, saida)
@@ -533,7 +520,7 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
                     index=False
                 )
 
-    # Salvamento final
+    # salvamento final
     with open(caminho_save, 'wb') as saida:
         pickle.dump(arquivo, saida)
 
@@ -561,7 +548,7 @@ def testar_subconjuntos_aleatorios(X_amostra, y_amostra, k=3):
     rng = np.random.default_rng(2026)
     y_amostra = np.asarray(y_amostra)
 
-    # Mesma divisao interna utilizada na otimizacao
+    # mesma divisao interna utilizada na otimizacao
     indices = np.arange(len(y_amostra))
 
     tr_idx, val_idx = train_test_split(
@@ -578,7 +565,7 @@ def testar_subconjuntos_aleatorios(X_amostra, y_amostra, k=3):
 
     n_features = X_amostra.shape[1]
 
-    # Faixas de quantidade de atributos
+    # faixas de quantidade de atributos
     grupos = [
         (1, 5),
         (6, 10),
@@ -598,17 +585,17 @@ def testar_subconjuntos_aleatorios(X_amostra, y_amostra, k=3):
     for minimo, maximo in grupos:
         for _ in range(avaliacoes_por_grupo):
 
-            # Sorteia quantos atributos selecionar
+            # sorteia quantos atributos selecionar
             quantidade = int(rng.integers(minimo, maximo + 1))
 
-            # Sorteia quais atributos serao selecionados
+            # sorteia quais atributos serao selecionados
             mascara = np.zeros(n_features, dtype=np.uint8)
             selecionados = rng.choice(
                 n_features, size=quantidade, replace=False
             )
             mascara[selecionados] = 1
 
-            # Utiliza a mesma funcao de avaliacao do MOGWO
+            # utiliza a mesma funcao de avaliacao do mogwo
             custo = avaliar_subconjunto(
                 mascara, X_tr, X_val, y_tr, y_val, k
             )
@@ -626,23 +613,21 @@ def testar_subconjuntos_aleatorios(X_amostra, y_amostra, k=3):
             restante = decorrido / contador * (total - contador)
 
             print(
-                f'{contador}/{total} | '
-                f'Atributos: {quantidade} | '
-                f'F1: {1.0 - custo[0]:.6f} | '
-                f'FPR: {custo[1]:.6f} | ',
-                #f'Decorrido: {decorrido / 60:.1f} min | '
-                #f'Restante estimado: {restante / 60:.1f} min',
+                f'{contador}/{total}  '
+                f'atributos: {quantidade}  '
+                f'f1: {1.0 - custo[0]:.6f}  '
+                f'fpr: {custo[1]:.6f}  '
+                f'decorrido: {decorrido / 60:.1f} min  ',
                 flush=True
             )
 
-        # Salva os resultados apos cada grupo
         pd.DataFrame(resultados).to_csv(
             'teste_subconjuntos_aleatorios.csv', index=False
         )
 
     df_resultados = pd.DataFrame(resultados)
 
-    print('\nResumo por grupo:')
+    print('\nresumo por grupo:')
     print(
         df_resultados.groupby('grupo', sort=False).agg(
             quantidade=('f1_score', 'count'),
@@ -658,21 +643,16 @@ def testar_subconjuntos_aleatorios(X_amostra, y_amostra, k=3):
 if __name__ == '__main__':
     CAMINHO_DATASET = 'data/MachineLearningCVE'
 
-    # 1. Carregamento e pré-processamento
     df = preprocessar(carregar_dataset(CAMINHO_DATASET))
 
-    # 2. Divisão externa: 70% treino e 30% teste
     X_train_scaled, X_test_scaled, y_train, y_test = dividir_normalizar(df)
 
-    # 3. Amostra estratificada de 10% do treinamento
     X_amostra, y_amostra = criar_amostra(
         X_train_scaled,
         y_train,
         tamanho=0.10
     )
 
-    # 4. MOGWO original: dois objetivos, SEM mutação, semente da busca 123.
-    # Histórico, avaliações internas e Pareto são mantidos separadamente.
     arquivo_final = bmogwo(
         X_amostra,
         y_amostra.values,
