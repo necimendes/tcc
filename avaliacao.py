@@ -1,3 +1,27 @@
+"""Avaliacao externa das mascaras FIXAS de solucoes.csv.
+
+Entrada: solucoes.csv, produzido por mogwo.py --selecionar (validacao interna).
+Saida: teste.csv, com as metricas do conjunto externo de teste.
+
+Nao executa MOGWO, nao seleciona mascaras e nao modifica o Pareto.
+Reproduz o protocolo da otimizacao:
+- mesmo CIC-IDS2017 e remocao de NaN/Inf/duplicatas;
+- classes: benigno=0, ataques=1;
+- divisao externa estratificada 70/30 (random_state=42);
+- MinMaxScaler ajustado somente sobre o treino externo;
+- k-NN com k=3 e distancia euclidiana;
+- treinamento com todos os 1.764.558 registros do treino externo;
+- avaliacao com os 756.240 registros de teste externo.
+
+Uso:
+    python -u avaliacao.py
+Opcionalmente, para reaproveitar somente mascaras IDENTICAS ja avaliadas:
+    python -u avaliacao.py --reaproveitar teste_anterior.csv
+
+O reaproveitamento nao seleciona candidatos: apenas copia os resultados
+anteriores quando a mascara e o protocolo sao exatamente os mesmos.
+"""
+
 from __future__ import annotations
 
 import argparse
