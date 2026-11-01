@@ -1,3 +1,8 @@
+# MOGWO com dois objetivos: maximizar F1-score e minimizar FPR.
+# Uma selecao auxiliar de solucoes de alto desempenho e feita SOMENTE
+# depois da otimizacao; ela nao interfere no algoritmo nem na dominancia.
+# "avaliacoes.csv" e "solucoes.csv" usam VALIDACAO INTERNA, nao teste externo.
+
 import numpy as np
 import pandas as pd
 import os
@@ -31,7 +36,7 @@ def preprocessar(df):
     print(f"removidos por duplicata: {antes - len(df)}")
     df[' Label'] = df[' Label'].apply(lambda x: 0 if x.strip() == 'BENIGN' else 1)
     print(f"total após limpeza: {len(df)}")
-    print(df[' label'].value_counts())
+    print(df[' Label'].value_counts())
     return df
 
 def dividir_normalizar(df):
@@ -72,6 +77,7 @@ import copy
 
 
 def domina(a, b):
+    """Dominância de Pareto: minimiza [1 - F1, FPR]."""
     return bool(np.all(a <= b) and np.any(a < b))
 
 
@@ -201,6 +207,20 @@ def selecionar_solucoes_apresentaveis(avaliacoes, arquivo_pareto,
                                       caminho='solucoes.csv',
                                       f1_min=0.992, fpr_max=0.002,
                                       quantidade_adicionais=5):
+    """Pos-processamento reprodutivel, exclusivamente da VALIDACAO INTERNA.
+
+    1) Preserva todas as mascaras do arquivo de Pareto de F1/FPR.
+    2) Considera como alternativas apenas mascaras com F1 >= f1_min,
+       FPR <= fpr_max e menos atributos que a menor mascara do Pareto.
+    3) Elimina candidatas dominadas se tambem considerarmos, apenas
+       para a triagem complementar, a quantidade de atributos.
+    4) Seleciona uma candidata para cada uma das cinco menores
+       quantidades distintas de atributos. Dentro da mesma quantidade,
+       prefere maior F1, depois menor FPR, depois a primeira iteracao.
+
+    Esta triagem NAO altera os objetivos, lideres ou dominancia do MOGWO.
+    As alternativas NAO fazem parte do arquivo de Pareto F1/FPR.
+    """
     dados = pd.DataFrame(avaliacoes).copy()
     if dados.empty or not arquivo_pareto:
         raise ValueError('Avaliacoes ou arquivo de Pareto estao vazios.')
@@ -277,12 +297,13 @@ def selecionar_solucoes_apresentaveis(avaliacoes, arquivo_pareto,
         'atributos_a_menos', 'etapa'
     ]]
     selecionadas.to_csv(caminho, index=False)
-    print(f'candidatas de boa qualidade com menos atributos: {len(candidatas)}; '
+    print(f'Candidatas de boa qualidade com menos atributos: {len(candidatas)}; '
           f'apos triagem complementar: {quantas_eficientes}.')
-    print(f'solucoes salvas em {caminho}: {len(pareto)} pareto e '
+    print(f'Solucoes salvas em {caminho}: {len(pareto)} Pareto e '
           f'{len(compactas)} alternativas compactas.')
-    print(f'triagem complementar: f1 >= {f1_min}, fpr <= {fpr_max}, '
+    print(f'Triagem complementar: F1 >= {f1_min}, FPR <= {fpr_max}, '
           f'n_atributos < {minimo_pareto}.')
+    print('Todas as metricas aqui sao de VALIDACAO INTERNA; o teste e separado.')
     return selecionadas
 
 
@@ -628,7 +649,7 @@ def testar_subconjuntos_aleatorios(X_amostra, y_amostra, k=3):
 
     df_resultados = pd.DataFrame(resultados)
 
-    print('\nresumo por grupo:')
+    print('\nResumo por grupo:')
     print(
         df_resultados.groupby('grupo', sort=False).agg(
             quantidade=('f1_score', 'count'),
@@ -643,7 +664,8 @@ def testar_subconjuntos_aleatorios(X_amostra, y_amostra, k=3):
 
 if __name__ == '__main__':
     if len(sys.argv) == 2 and sys.argv[1] == '--selecionar':
-        
+        # Recria solucoes.csv com os arquivos da otimizacao JA CONCLUIDA.
+        # Nao carrega o dataset, nao executa o MOGWO e nao usa teste.csv.
         with open('pareto.pkl', 'rb') as entrada:
             arquivo_anterior = pickle.load(entrada)
         dados_anterior = pd.read_csv('avaliacoes.csv', dtype={'mascara': str})
