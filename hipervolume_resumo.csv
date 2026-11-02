@@ -1,0 +1,4 @@
+referencia,ref_erro_f1,ref_fpr,n_mascaras_originais,hv_validacao,hv_teste_mesmas_mascaras
+principal,0.01,0.003,5,4.53939399879673e-06,1.165211111943201e-05
+sensibilidade_1,0.02,0.005,5,4.4662376046071175e-05,6.324865532286215e-05
+sensibilidade_2,0.05,0.01,5,0.0003615599757228536,0.0004121725396414161
