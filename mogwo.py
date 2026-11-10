@@ -1,8 +1,3 @@
-# MOGWO com dois objetivos: maximizar F1-score e minimizar FPR.
-# Uma selecao auxiliar de solucoes de alto desempenho e feita SOMENTE
-# depois da otimizacao; ela nao interfere no algoritmo nem na dominancia.
-# "avaliacoes.csv" e "solucoes.csv" usam VALIDACAO INTERNA, nao teste externo.
-
 import numpy as np
 import pandas as pd
 import os
@@ -50,6 +45,7 @@ def dividir_normalizar(df):
     print(f"treino: {X_train_scaled.shape[0]} | teste: {X_test_scaled.shape[0]}")
     return X_train_scaled, X_test_scaled, y_train, y_test
 
+# ja houve divisao, e essa é mais uma divisao que pega dados dos 70% do treino. se sao 10% daq e 70% de lá, temos 7% do original.
 def criar_amostra(X_train_scaled, y_train, tamanho=0.10):
     sss = StratifiedShuffleSplit(n_splits=1, test_size=1-tamanho, random_state=42)
     idx, _ = next(sss.split(X_train_scaled, y_train))
@@ -65,7 +61,7 @@ def escolher_k(X_amostra, y_amostra, ks=[3, 5, 7, 9]):
         cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
         scores = cross_val_score(knn, X_amostra, y_amostra, cv=cv, scoring='f1', n_jobs=-1)
         resultados[k] = scores
-        print(f"k={k}: F1 médio={scores.mean():.4f} | desvio={scores.std():.4f}")
+        print(f"k={k}: f1 médio={scores.mean():.4f} | desvio={scores.std():.4f}")
     k_escolhido = max(resultados, key=lambda k: resultados[k].mean())
     print(f"\nk escolhido: {k_escolhido}")
     return k_escolhido
@@ -76,8 +72,8 @@ import csv
 import copy
 
 
+#minimiza todo mundo aq. o f1 fica na vdd 1-f1 (pro comparativo)
 def domina(a, b):
-    """Dominância de Pareto: minimiza [1 - F1, FPR]."""
     return bool(np.all(a <= b) and np.any(a < b))
 
 
@@ -97,7 +93,7 @@ def avaliar_subconjunto(posicao, X_tr, X_val, y_tr, y_val, k):
 
 
 def criar_hipercubos(arquivo, n_grid=10, alpha=0.1):
-    """identifica o hipercubo de cada solução no espaço dos objetivos"""
+    #identifica o hipercubo de cada solução no espaço dos objetivos
     custos = np.array([sol['custo'] for sol in arquivo])
     limites_por_objetivo = []
 
@@ -549,15 +545,21 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
         index=False
     )
 
-    selecionar_solucoes_apresentaveis(
-        avaliacoes, arquivo, caminho=solucoes_csv,
-        f1_min=0.992, fpr_max=0.002, quantidade_adicionais=5
-    )
+    registros = []
 
-    print(
-        f"Concluído: {len(arquivo)} soluções não dominadas, "
-        f"{len(cache)} máscaras avaliadas."
-    )
+    for i, sol in enumerate(arquivo):
+        mascara = np.asarray(sol['posicao'], dtype=np.uint8)
+
+        registros.append({
+            'solucao': chr(ord('A') + i),
+            'tipo': 'Pareto',
+            'mascara': ''.join(mascara.astype(str)),
+            'n_atributos': int(mascara.sum()),
+            'f1_score': float(1.0 - sol['custo'][0]),
+            'fpr': float(sol['custo'][1])
+        })
+
+    pd.DataFrame(registros).to_csv(solucoes_csv, index=False)
 
     return arquivo
 
@@ -663,37 +665,26 @@ def testar_subconjuntos_aleatorios(X_amostra, y_amostra, k=3):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) == 2 and sys.argv[1] == '--selecionar':
-        # Recria solucoes.csv com os arquivos da otimizacao JA CONCLUIDA.
-        # Nao carrega o dataset, nao executa o MOGWO e nao usa teste.csv.
-        with open('pareto.pkl', 'rb') as entrada:
-            arquivo_anterior = pickle.load(entrada)
-        dados_anterior = pd.read_csv('avaliacoes.csv', dtype={'mascara': str})
-        selecionar_solucoes_apresentaveis(
-            dados_anterior, arquivo_anterior, caminho='solucoes.csv',
-            f1_min=0.992, fpr_max=0.002, quantidade_adicionais=5
-        )
-        sys.exit(0)
-    elif len(sys.argv) > 1:
-        raise SystemExit('Uso: python mogwo.py OU python mogwo.py --selecionar')
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--seed', type=int, default=123)
+    args = parser.parse_args()
+
+    suf = f'_s{args.seed}'
 
     CAMINHO_DATASET = 'data/MachineLearningCVE'
 
-    # 1. Carregamento e pré-processamento
     df = preprocessar(carregar_dataset(CAMINHO_DATASET))
 
-    # 2. Divisão externa: 70% treino e 30% teste
     X_train_scaled, X_test_scaled, y_train, y_test = dividir_normalizar(df)
 
-    # 3. Amostra estratificada de 10% do treinamento
     X_amostra, y_amostra = criar_amostra(
         X_train_scaled,
         y_train,
         tamanho=0.10
     )
 
-    # 4. MOGWO original: dois objetivos, SEM mutação, semente da busca 123.
-    # Histórico, avaliações internas e Pareto são mantidos separadamente.
     arquivo_final = bmogwo(
         X_amostra,
         y_amostra.values,
@@ -701,10 +692,10 @@ if __name__ == '__main__':
         n_lobos=30,
         max_iter=200,
         archive_size=100,
-        seed=123,
-        caminho_save='pareto.pkl',
-        log_csv='historico.csv',
-        avaliacoes_csv='avaliacoes.csv',
-        solucoes_csv='solucoes.csv'
+        seed=args.seed,
+        caminho_save=f'pareto{suf}.pkl',
+        log_csv=f'historico{suf}.csv',
+        avaliacoes_csv=f'avaliacoes{suf}.csv',
+        solucoes_csv=f'solucoes{suf}.csv'
     )
     print(f"soluções: {len(arquivo_final)}")

@@ -1,0 +1,4 @@
+referencia,ref_erro_f1,ref_fpr,ref_frac_atributos,n_pareto_total,n_pareto_dentro_da_referencia,hv_arquivo_validacao,hv_arquivo_validacao_normalizado,n_avaliadas_teste,hv_selecionadas_validacao,hv_selecionadas_teste,hv_selecionadas_teste_normalizado
+principal,0.015,0.003,0.5,71,19,1.6883076269609546e-06,0.075035894531598,0,,,
+sensibilidade_1,0.02,0.005,0.5,71,20,1.237751089588863e-05,0.2475502179177726,0,,,
+sensibilidade_2,0.05,0.01,0.5,71,41,0.00014640466480949702,0.5856186592379881,0,,,
