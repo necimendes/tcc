@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 import pickle
 
@@ -52,10 +53,10 @@ def nao_dominados(pontos):
     return manter
 
 
-def ler_pareto():
+def ler_pareto(caminho):
     # Abra somente arquivos .pkl produzidos por voce: pickle nao e seguro
     # para conteudo de origem desconhecida.
-    with (PASTA / "pareto.pkl").open("rb") as arquivo:
+    with caminho.open("rb") as arquivo:
         solucoes = pickle.load(arquivo)
     if not isinstance(solucoes, list) or not solucoes:
         raise ValueError("pareto.pkl nao contem uma lista valida.")
@@ -76,32 +77,9 @@ def ler_pareto():
     return mascaras, validar_pontos(custos, "validacao interna")
 
 
-def ler_teste_para_mesmas_mascaras(mascaras):
-    teste = pd.read_csv(PASTA / "teste.csv", dtype={"mascara": str})
-    colunas = {"mascara", "f1_teste", "fpr_teste"}
-    if not colunas <= set(teste.columns):
-        raise ValueError(f"teste.csv precisa ter as colunas: {sorted(colunas)}")
-    if teste["mascara"].duplicated().any():
-        raise ValueError("teste.csv contem mascaras duplicadas")
-    teste = teste.set_index("mascara", drop=False)
-    faltantes = [m for m in mascaras if m not in teste.index]
-    if faltantes:
-        raise ValueError(
-            f"Faltam {len(faltantes)} das mascaras originais de Pareto "
-            "no teste.csv. Verifique se e o teste da mesma execucao."
-        )
-    linhas = teste.loc[mascaras]
-    pontos = np.column_stack([
-        1.0 - pd.to_numeric(linhas["f1_teste"]).to_numpy(dtype=float),
-        pd.to_numeric(linhas["fpr_teste"]).to_numpy(dtype=float),
-    ])
-    return validar_pontos(pontos, "teste externo")
-
-
-def evolucao_validacao(referencia):
-    caminho = PASTA / "avaliacoes.csv"
+def evolucao_validacao(referencia, caminho, saida_csv, saida_png):
     if not caminho.exists():
-        print("avaliacoes.csv ausente: a evolucao temporal sera ignorada.")
+        print(f"{caminho.name} ausente: a evolucao temporal sera ignorada.")
         return
     df = pd.read_csv(caminho)
     exigidas = {"iteracao", "f1_score", "fpr"}
@@ -130,7 +108,7 @@ def evolucao_validacao(referencia):
             "pontos_na_fronteira_acumulada": len(frente_acumulada),
         })
     hist = pd.DataFrame(registros)
-    hist.to_csv(PASTA / "hipervolume_evolucao.csv", index=False)
+    hist.to_csv(saida_csv, index=False)
 
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(figsize=(8.5, 4.5))
@@ -139,51 +117,52 @@ def evolucao_validacao(referencia):
            title="Evolucao do hipervolume durante a otimizacao")
     ax.grid(alpha=0.25)
     fig.tight_layout()
-    fig.savefig(PASTA / "hipervolume_evolucao.png", dpi=300)
+    fig.savefig(saida_png, dpi=300)
     plt.close(fig)
-    print("Gerados: hipervolume_evolucao.csv e hipervolume_evolucao.png")
     return hist
 
 
 def main():
-    mascaras, validacao = ler_pareto()
-    teste = ler_teste_para_mesmas_mascaras(mascaras)
-    print(f"Mascaras do Pareto original: {len(mascaras)}")
-    print(f"Nao dominadas entre elas na VALIDACAO: {nao_dominados(validacao).sum()}")
-    print(f"Nao dominadas entre as MESMAS mascaras no TESTE: {nao_dominados(teste).sum()}")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--seed", type=int, default=123)
+    args = parser.parse_args()
+    suf = f"_s{args.seed}"
+
+    mascaras, validacao = ler_pareto(PASTA / f"pareto{suf}.pkl")
+    print(f"semente {args.seed}: {len(mascaras)} solucoes no arquivo de pareto "
+          f"({nao_dominados(validacao).sum()} nao dominadas na validacao)")
 
     registros = []
     for nome, referencia in REFERENCIAS.items():
         hv_validacao = calcular_hv(validacao, referencia)
-        hv_teste = calcular_hv(teste, referencia)
         registros.append({
             "referencia": nome,
             "ref_erro_f1": referencia[0],
             "ref_fpr": referencia[1],
-            "n_mascaras_originais": len(mascaras),
+            "n_solucoes": len(mascaras),
             "hv_validacao": hv_validacao,
-            "hv_teste_mesmas_mascaras": hv_teste,
+            "hv_validacao_normalizado": hv_validacao / (referencia[0] * referencia[1]),
         })
-        print(f"\nReferencia {nome}: [1-F1={referencia[0]}, FPR={referencia[1]}]")
-        print(f"  HV validacao interna: {hv_validacao:.12e}")
-        print(f"  HV teste externo:    {hv_teste:.12e}")
+        print(f"referencia {nome} {referencia}: HV = {hv_validacao:.6e} "
+              f"(normalizado {hv_validacao / (referencia[0] * referencia[1]):.3f})")
 
-    pd.DataFrame(registros).to_csv(PASTA / "hipervolume_resumo.csv", index=False)
-    print("\nGerado: hipervolume_resumo.csv")
-    evolucao = evolucao_validacao(np.array(REFERENCIAS["principal"], dtype=float))
+    pd.DataFrame(registros).to_csv(PASTA / f"hipervolume_resumo{suf}.csv", index=False)
+
+    ref_principal = np.array(REFERENCIAS["principal"], dtype=float)
+    evolucao = evolucao_validacao(
+        ref_principal,
+        PASTA / f"avaliacoes{suf}.csv",
+        PASTA / f"hipervolume_evolucao{suf}.csv",
+        PASTA / f"hipervolume_evolucao{suf}.png",
+    )
     if evolucao is not None:
         hv_final_acumulado = float(evolucao["hipervolume_validacao"].iloc[-1])
-        hv_final_pareto = calcular_hv(validacao, REFERENCIAS["principal"])
+        hv_final_pareto = calcular_hv(validacao, ref_principal)
         if not np.isclose(hv_final_acumulado, hv_final_pareto, rtol=1e-8, atol=1e-14):
             raise ValueError(
-                "O HV acumulado das avaliacoes nao coincide com o HV do pareto.pkl. "
+                "O HV acumulado das avaliacoes nao coincide com o HV do arquivo de Pareto. "
                 "Verifique se os arquivos sao da mesma execucao."
             )
-        print("Verificacao concluida: HV do historico coincide com pareto.pkl.")
-    print("\nATENCAO: HV externo e descritivo, nao parte do criterio de selecao.")
-    print("Nao interprete diferencas de HV entre validacao e teste como melhora")
-    print("do algoritmo: os modelos foram treinados com quantidades de dados diferentes.")
-
 
 if __name__ == "__main__":
     main()
