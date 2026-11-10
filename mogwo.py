@@ -7,8 +7,9 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split, StratifiedShuffleSplit, StratifiedKFold, cross_val_score
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import f1_score
+from sklearn.metrics import confusion_matrix
+import csv
 import pickle
-import sys
 
 def carregar_dataset(caminho):
     dfs = []
@@ -66,12 +67,6 @@ def escolher_k(X_amostra, y_amostra, ks=[3, 5, 7, 9]):
     print(f"\nk escolhido: {k_escolhido}")
     return k_escolhido
 
-
-from sklearn.metrics import confusion_matrix
-import csv
-import copy
-
-
 #minimiza todo mundo aq. o f1 fica na vdd 1-f1 (pro comparativo)
 def domina(a, b):
     return bool(np.all(a <= b) and np.any(a < b))
@@ -90,7 +85,6 @@ def avaliar_subconjunto(posicao, X_tr, X_val, y_tr, y_val, k):
         1.0 - f1,
         fp / (fp + tn) if fp + tn else 0.0
     ])
-
 
 def criar_hipercubos(arquivo, n_grid=10, alpha=0.1):
     #identifica o hipercubo de cada solução no espaço dos objetivos
@@ -196,112 +190,6 @@ def atualizar_arquivo(arquivo, candidato, capacidade, rng,
         arquivo.pop(int(rng.choice(grupo)))
 
     return arquivo
-
-
-
-def selecionar_solucoes_apresentaveis(avaliacoes, arquivo_pareto,
-                                      caminho='solucoes.csv',
-                                      f1_min=0.992, fpr_max=0.002,
-                                      quantidade_adicionais=5):
-    """Pos-processamento reprodutivel, exclusivamente da VALIDACAO INTERNA.
-
-    1) Preserva todas as mascaras do arquivo de Pareto de F1/FPR.
-    2) Considera como alternativas apenas mascaras com F1 >= f1_min,
-       FPR <= fpr_max e menos atributos que a menor mascara do Pareto.
-    3) Elimina candidatas dominadas se tambem considerarmos, apenas
-       para a triagem complementar, a quantidade de atributos.
-    4) Seleciona uma candidata para cada uma das cinco menores
-       quantidades distintas de atributos. Dentro da mesma quantidade,
-       prefere maior F1, depois menor FPR, depois a primeira iteracao.
-
-    Esta triagem NAO altera os objetivos, lideres ou dominancia do MOGWO.
-    As alternativas NAO fazem parte do arquivo de Pareto F1/FPR.
-    """
-    dados = pd.DataFrame(avaliacoes).copy()
-    if dados.empty or not arquivo_pareto:
-        raise ValueError('Avaliacoes ou arquivo de Pareto estao vazios.')
-    dados['mascara'] = dados['mascara'].astype(str)
-    if dados['mascara'].duplicated().any():
-        raise ValueError('avaliacoes contem mascaras duplicadas.')
-
-    mascaras_pareto = {
-        ''.join(map(str, np.asarray(s['posicao'], dtype=np.uint8)))
-        for s in arquivo_pareto
-    }
-    pareto = dados[dados['mascara'].isin(mascaras_pareto)].copy()
-    if len(pareto) != len(arquivo_pareto):
-        raise ValueError('Nem todas as mascaras do pareto.pkl estao em avaliacoes.csv.')
-    pareto.sort_values(['fpr', 'f1_score', 'n_atributos', 'mascara'],
-                       ascending=[True, False, True, True], inplace=True)
-    pareto['tipo'] = 'Pareto'
-    pareto['solucao'] = [f'P{i:02d}' for i in range(1, len(pareto) + 1)]
-    pareto['distancia_hamming_pareto'] = 0
-    pareto['atributos_a_menos'] = 0
-
-    minimo_pareto = int(pareto['n_atributos'].min())
-    candidatas = dados.loc[
-        (~dados['mascara'].isin(mascaras_pareto)) &
-        (dados['f1_score'] >= f1_min) &
-        (dados['fpr'] <= fpr_max) &
-        (dados['n_atributos'] < minimo_pareto)
-    ].copy()
-    if candidatas.empty:
-        print('Nenhuma alternativa compacta atende aos criterios; sera salvo apenas o Pareto.')
-        compactas = candidatas
-        quantas_eficientes = 0
-    else:
-        # Dominancia com 3 criterios so nesta triagem, NAO na otimizacao.
-        criterios = np.column_stack([
-            1.0 - candidatas['f1_score'].to_numpy(dtype=float),
-            candidatas['fpr'].to_numpy(dtype=float),
-            candidatas['n_atributos'].to_numpy(dtype=float)
-        ])
-        manter = np.ones(len(candidatas), dtype=bool)
-        for i, candidato in enumerate(criterios):
-            dominadores = (np.all(criterios <= candidato, axis=1) &
-                           np.any(criterios < candidato, axis=1))
-            manter[i] = not np.any(dominadores)
-        compactas = candidatas.iloc[np.flatnonzero(manter)].copy()
-        quantas_eficientes = len(compactas)
-        compactas.sort_values(
-            ['n_atributos', 'f1_score', 'fpr', 'iteracao', 'mascara'],
-            ascending=[True, False, True, True, True],
-            kind='stable', inplace=True
-        )
-        compactas.drop_duplicates(subset=['n_atributos'], keep='first', inplace=True)
-        compactas = compactas.head(quantidade_adicionais).copy()
-        compactas['tipo'] = 'Alternativa compacta'
-        compactas['solucao'] = [f'A{i:02d}' for i in range(1, len(compactas) + 1)]
-        mascaras_pareto_binarias = np.stack([
-            np.asarray(s['posicao'], dtype=np.uint8) for s in arquivo_pareto
-        ])
-        compactas['distancia_hamming_pareto'] = [
-            int(np.min(np.count_nonzero(
-                mascaras_pareto_binarias !=
-                np.fromiter((int(bit) for bit in mascara), dtype=np.uint8),
-                axis=1
-            )))
-            for mascara in compactas['mascara']
-        ]
-        compactas['atributos_a_menos'] = minimo_pareto - compactas['n_atributos']
-
-    selecionadas = pd.concat([pareto, compactas], ignore_index=True)
-    selecionadas['etapa'] = 'validacao_interna'
-    selecionadas = selecionadas[[
-        'solucao', 'tipo', 'iteracao', 'mascara', 'n_atributos',
-        'f1_score', 'fpr', 'distancia_hamming_pareto',
-        'atributos_a_menos', 'etapa'
-    ]]
-    selecionadas.to_csv(caminho, index=False)
-    print(f'Candidatas de boa qualidade com menos atributos: {len(candidatas)}; '
-          f'apos triagem complementar: {quantas_eficientes}.')
-    print(f'Solucoes salvas em {caminho}: {len(pareto)} Pareto e '
-          f'{len(compactas)} alternativas compactas.')
-    print(f'Triagem complementar: F1 >= {f1_min}, FPR <= {fpr_max}, '
-          f'n_atributos < {minimo_pareto}.')
-    print('Todas as metricas aqui sao de VALIDACAO INTERNA; o teste e separado.')
-    return selecionadas
-
 
 def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
            archive_size=100, caminho_save='pareto.pkl',
@@ -562,107 +450,6 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
     pd.DataFrame(registros).to_csv(solucoes_csv, index=False)
 
     return arquivo
-
-
-def testar_subconjuntos_aleatorios(X_amostra, y_amostra, k=3):
-    import time
-
-    rng = np.random.default_rng(2026)
-    y_amostra = np.asarray(y_amostra)
-
-    # Mesma divisao interna utilizada na otimizacao
-    indices = np.arange(len(y_amostra))
-
-    tr_idx, val_idx = train_test_split(
-        indices,
-        test_size=0.30,
-        stratify=y_amostra,
-        random_state=42
-    )
-
-    X_tr = X_amostra[tr_idx]
-    X_val = X_amostra[val_idx]
-    y_tr = y_amostra[tr_idx]
-    y_val = y_amostra[val_idx]
-
-    n_features = X_amostra.shape[1]
-
-    # Faixas de quantidade de atributos
-    grupos = [
-        (1, 5),
-        (6, 10),
-        (11, 20),
-        (21, 35),
-        (36, 55),
-        (56, n_features)
-    ]
-
-    avaliacoes_por_grupo = 15
-    resultados = []
-    inicio = time.perf_counter()
-
-    total = len(grupos) * avaliacoes_por_grupo
-    contador = 0
-
-    for minimo, maximo in grupos:
-        for _ in range(avaliacoes_por_grupo):
-
-            # Sorteia quantos atributos selecionar
-            quantidade = int(rng.integers(minimo, maximo + 1))
-
-            # Sorteia quais atributos serao selecionados
-            mascara = np.zeros(n_features, dtype=np.uint8)
-            selecionados = rng.choice(
-                n_features, size=quantidade, replace=False
-            )
-            mascara[selecionados] = 1
-
-            # Utiliza a mesma funcao de avaliacao do MOGWO
-            custo = avaliar_subconjunto(
-                mascara, X_tr, X_val, y_tr, y_val, k
-            )
-
-            resultados.append({
-                'grupo': f'{minimo}-{maximo}',
-                'n_atributos': quantidade,
-                'mascara': ''.join(map(str, mascara)),
-                'f1_score': 1.0 - custo[0],
-                'fpr': custo[1]
-            })
-
-            contador += 1
-            decorrido = time.perf_counter() - inicio
-            restante = decorrido / contador * (total - contador)
-
-            print(
-                f'{contador}/{total} | '
-                f'Atributos: {quantidade} | '
-                f'F1: {1.0 - custo[0]:.6f} | '
-                f'FPR: {custo[1]:.6f} | ',
-                #f'Decorrido: {decorrido / 60:.1f} min | '
-                #f'Restante estimado: {restante / 60:.1f} min',
-                flush=True
-            )
-
-        # Salva os resultados apos cada grupo
-        pd.DataFrame(resultados).to_csv(
-            'teste_subconjuntos_aleatorios.csv', index=False
-        )
-
-    df_resultados = pd.DataFrame(resultados)
-
-    print('\nResumo por grupo:')
-    print(
-        df_resultados.groupby('grupo', sort=False).agg(
-            quantidade=('f1_score', 'count'),
-            melhor_f1=('f1_score', 'max'),
-            menor_fpr=('fpr', 'min')
-        )
-    )
-
-    print('\nTeste concluido.')
-    return df_resultados
-
 
 if __name__ == '__main__':
     import argparse
