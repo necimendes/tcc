@@ -198,6 +198,8 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
            avaliacoes_csv='avaliacoes.csv',
            solucoes_csv='solucoes.csv'):
 
+    inicio = time.perf_counter()
+
     rng = np.random.default_rng(seed)
     y_treino = np.asarray(y_treino)
 
@@ -278,8 +280,6 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
             'diversidade_hamming',
             'novas_avaliacoes'
         ])
-
-        inicio = time.perf_counter()
 
         for it in range(max_iter):
             iteracao_atual = it + 1
@@ -391,28 +391,15 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
 
             f.flush()
 
-            tempo_decorrido = time.perf_counter() - inicio
-            tempo_medio = tempo_decorrido / (it + 1)
-            tempo_restante = (
-                tempo_medio * (max_iter - (it + 1))
-            )
-
-            decorrido = str(timedelta(
-                seconds=int(tempo_decorrido)
-            ))
-
-            restante = str(timedelta(
-                seconds=int(tempo_restante)
-            ))
-
-            print(
-                f"iteração {it+1}/{max_iter}  "
-                f"pareto: {len(arquivo)}  "
-                f"avaliados: {len(cache)}  "
-                f"melhor f1: {1-custos[:, 0].min():.5f}  "
-                f"menor fpr: {custos[:, 1].min():.5f}  ",
-                flush=True
-            )
+            if (it + 1) % 10 == 0:
+                print(
+                    f"iteracao {it+1}/{max_iter}  "
+                    f"pareto: {len(arquivo)}  "
+                    f"avaliados: {len(cache)}  "
+                    f"melhor f1: {1-custos[:, 0].min():.5f}  "
+                    f"melhor fpr: {custos[:, 1].min():.5f}  ",
+                    flush=True
+                )
 
             # Salvamento periódico
             if (it + 1) % 20 == 0:
@@ -448,6 +435,13 @@ def bmogwo(X_treino, y_treino, k=3, n_lobos=30, max_iter=200,
         })
 
     pd.DataFrame(registros).to_csv(solucoes_csv, index=False)
+
+    tempo_total = time.perf_counter() - inicio
+
+    print(
+        f"{timedelta(seconds=int(tempo_total))}",
+        flush=True
+    )
 
     return arquivo
 
