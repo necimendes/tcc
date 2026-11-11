@@ -8,9 +8,6 @@ from pymoo.indicators.hv import HV
 
 PASTA = Path(__file__).resolve().parent
 
-# Espaco de MINIMIZACAO: [1 - F1, FPR].
-# Referencia principal ja usada nas analises anteriores.
-# As referencias adicionais avaliam sensibilidade, sem mudar a selecao.
 REFERENCIAS = {
     "principal": (0.01, 0.003),
     "sensibilidade_1": (0.02, 0.005),
@@ -28,21 +25,20 @@ def validar_pontos(pontos, nome):
 
 
 def calcular_hv(pontos, referencia):
-    """Calcula HV EXATO via biblioteca pymoo (2 objetivos)."""
-    pontos = validar_pontos(pontos, "calculo de HV")
+
+    pontos = validar_pontos(pontos, "calculo de hv")
     referencia = np.asarray(referencia, dtype=float)
-    # Valida a adequacao da referencia para TODOS os pontos fornecidos.
-    if np.any(pontos >= referencia):
-        raise ValueError(
-            f"Ponto de referencia {referencia} nao e estritamente pior "
-            "que todos os pontos nos dois objetivos. Reveja a referencia "
-            "e mantenha-a igual entre as duas etapas."
-        )
-    return float(HV(ref_point=referencia).do(pontos))
+
+    dentro = pontos[np.all(pontos < referencia, axis=1)]
+
+    if len(dentro) == 0:
+        return 0.0
+
+    return float(HV(ref_point=referencia).do(dentro))
 
 
 def nao_dominados(pontos):
-    """Mascara de pontos nao dominados; somente para relato diagnostico."""
+
     pontos = validar_pontos(pontos, "nao dominados")
     manter = np.ones(len(pontos), dtype=bool)
     for i, p in enumerate(pontos):
@@ -54,8 +50,7 @@ def nao_dominados(pontos):
 
 
 def ler_pareto(caminho):
-    # Abra somente arquivos .pkl produzidos por voce: pickle nao e seguro
-    # para conteudo de origem desconhecida.
+
     with caminho.open("rb") as arquivo:
         solucoes = pickle.load(arquivo)
     if not isinstance(solucoes, list) or not solucoes:
@@ -92,7 +87,7 @@ def evolucao_validacao(referencia, caminho, saida_csv, saida_png):
         for f1, fpr in zip(grupo["f1_score"], grupo["fpr"]):
             ponto = np.array([1.0 - float(f1), float(fpr)])
             if np.any(ponto >= referencia):
-                continue  # Nao contribui para a regiao delimitada pela referencia.
+                continue  # nao contribui para a regiao delimitada pela referencia.
             if any(np.all(outro <= ponto) for outro in frente_acumulada):
                 continue
             frente_acumulada = [
