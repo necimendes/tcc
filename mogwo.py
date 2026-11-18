@@ -450,9 +450,13 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', type=int, default=123)
+    parser.add_argument('--lobos', type=int, default=30)
+    parser.add_argument('--iter', type=int, default=200)
     args = parser.parse_args()
 
     suf = f'_s{args.seed}'
+    if (args.lobos, args.iter) != (30, 200):
+        suf += f'_L{args.lobos}_I{args.iter}'
 
     CAMINHO_DATASET = 'data/MachineLearningCVE'
 
@@ -466,12 +470,18 @@ if __name__ == '__main__':
         tamanho=0.10
     )
 
+    print(
+        f"semente: {args.seed}  lobos: {args.lobos}  "
+        f"iteracoes: {args.iter}  sufixo: {suf}",
+        flush=True
+    )
+
     arquivo_final = bmogwo(
         X_amostra,
         y_amostra.values,
         k=3,
-        n_lobos=30,
-        max_iter=200,
+        n_lobos=args.lobos,
+        max_iter=args.iter,
         archive_size=100,
         seed=args.seed,
         caminho_save=f'pareto{suf}.pkl',
